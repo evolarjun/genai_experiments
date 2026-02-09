@@ -1,0 +1,26 @@
+#Host	Collection date	BioProject	BioSample	Organism group	Scientific name	Isolation type	Location	Isolation source	Isolate	Antibiotic	Resistance phenotype	Measurement sign	MIC (mg/L)	Disk diffusion (mm)	Laboratory typing platform	Vendor	Laboratory typing method version or reagent	Testing standard	Create date
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	amikacin	susceptible	<=	1.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	amoxicillin-clavulanic acid	resistant	>	32.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	ampicillin	resistant	>	32.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	ampicillin-sulbactam	resistant	>	32.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	aztreonam	resistant	>	64.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	cefazolin	resistant	>	8.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	cefepime	resistant	>	32.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	cefotaxime	resistant	>	64.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	cefoxitin	resistant	>	16.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	ceftazidime	intermediate	==	8.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	ceftriaxone	resistant	>	32.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	ciprofloxacin	susceptible	<=	0.25					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	colistin	not defined	==	0.5					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	doripenem	intermediate	==	2.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	ertapenem	resistant	==	8.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	gentamicin	susceptible	<=	0.25					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	imipenem	susceptible	==	1.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	levofloxacin	susceptible	==	0.25					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	meropenem	resistant	==	8.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	piperacillin-tazobactam	resistant	>	128.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	polymyxin B	not defined	==	0.5					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	tetracycline	intermediate	==	8.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	tigecycline	susceptible	==	2.0					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	tobramycin	susceptible	<=	0.5					CLSI	2016-03-18T19:12:12Z
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca	clinical			PDT000115266.2	trimethoprim-sulfamethoxazole	susceptible	<=	0.5					CLSI	2016-03-18T19:12:12Z

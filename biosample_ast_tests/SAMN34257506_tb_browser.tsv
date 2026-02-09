@@ -1,0 +1,11 @@
+#Isolation source	Host	BioProject	Collection date	BioSample	Organism group	Scientific name	Isolation type	Location	Isolate	Antibiotic	Resistance phenotype	Measurement sign	MIC (mg/L)	Disk diffusion (mm)	Laboratory typing platform	Vendor	Laboratory typing method version or reagent	Testing standard	Create date
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	capreomycin	intermediate								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	ciprofloxacin	susceptible								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	clarithromycin	intermediate								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	ethambutol	intermediate								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	ethionamide	resistant								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	isoniazid	resistant								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	ofloxacin	susceptible								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	pyrazinamide	susceptible								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	rifampin	resistant								2023-12-11T12:07:28Z
+sputum	Homo sapiens	PRJNA957554	2021-10-10	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis	clinical	Israel	PDT002022546.1	streptomycin	resistant								2023-12-11T12:07:28Z

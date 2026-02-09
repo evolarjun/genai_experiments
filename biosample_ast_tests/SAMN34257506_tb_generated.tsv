@@ -1,0 +1,11 @@
+Host	Collection date	BioProject	BioSample	Organism group	Scientific name	Isolation type	Location	Isolation source	Isolate	Antibiotic	Resistance phenotype	Measurement sign	MIC (mg/L)	Disk diffusion (mm)	Laboratory typing platform	Vendor	Laboratory typing method version or reagent	Testing standard	Create date
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	rifampin	resistant								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	isoniazid	resistant								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	ethambutol	intermediate								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	streptomycin	resistant								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	pyrazinamide	susceptible								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	ciprofloxacin	susceptible								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	clarithromycin	intermediate								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	capreomycin	intermediate								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	ethionamide	resistant								2023-09-12T18:40:41.443
+Homo sapiens	2021-10-10	PRJNA957554	SAMN34257506	Mycobacterium tuberculosis	Mycobacterium tuberculosis		Israel	sputum	NA	ofloxacin	susceptible								2023-09-12T18:40:41.443

@@ -1,0 +1,26 @@
+Host	Collection date	BioProject	BioSample	Organism group	Scientific name	Isolation type	Location	Isolation source	Isolate	Antibiotic	Resistance phenotype	Measurement sign	MIC (mg/L)	Disk diffusion (mm)	Laboratory typing platform	Vendor	Laboratory typing method version or reagent	Testing standard	Create date
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	amikacin	susceptible	<=	1.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	amoxicillin-clavulanic acid	resistant	>	32.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	ampicillin	resistant	>	32.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	ampicillin-sulbactam	resistant	>	32.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	aztreonam	resistant	>	64.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	cefazolin	resistant	>	8.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	cefepime	resistant	>	32.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	cefotaxime	resistant	>	64.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	cefoxitin	resistant	>	16.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	ceftazidime	intermediate	==	8.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	ceftriaxone	resistant	>	32.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	ciprofloxacin	susceptible	<=	0.25					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	colistin	not defined	==	0.5					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	doripenem	intermediate	==	2.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	ertapenem	resistant	==	8.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	gentamicin	susceptible	<=	0.25					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	imipenem	susceptible	==	1.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	levofloxacin	susceptible	==	0.25					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	meropenem	resistant	==	8.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	piperacillin-tazobactam	resistant	>	128.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	polymyxin B	not defined	==	0.5					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	tetracycline	intermediate	==	8.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	tigecycline	susceptible	==	2.0					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	tobramycin	susceptible	<=	0.5					CLSI	2015-08-27T00:00:00.000
+		PRJNA292904	SAMN04014912	Klebsiella oxytoca	Klebsiella oxytoca				FDA-CDC-AR_0071	trimethoprim-sulfamethoxazole	susceptible	<=	0.5					CLSI	2015-08-27T00:00:00.000

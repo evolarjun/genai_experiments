@@ -1,0 +1,40 @@
+Host	Collection date	BioProject	BioSample	Organism group	Scientific name	Isolation type	Location	Isolation source	Isolate	Antibiotic	Resistance phenotype	Measurement sign	MIC (mg/L)	Disk diffusion (mm)	Laboratory typing platform	Vendor	Laboratory typing method version or reagent	Testing standard	Create date
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		amikacin	resistant	>=	64.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		amikacin	resistant	==		12.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		amoxicillin-clavulanic acid	resistant	>=	32.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ampicillin	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ampicillin	resistant	>=	32.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		aztreonam	resistant	==		16.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		amoxicillin-clavulanic acid	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ceftazidime	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		cefalexin	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		cefazolin	resistant	>=	64.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		cefepime	resistant	>=	64.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		cefoxitin	resistant	>=	64.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ceftazidime	resistant	>=	64.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ceftriaxone	resistant	==	8.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		chloramphenicol	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ciprofloxacin	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ciprofloxacin	resistant	>=	4.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		colistin	susceptible	==		14.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ceftriaxone	resistant	==		18.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		cefotetan	resistant	==		11.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ertapenem	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		ertapenem	resistant	>=	8.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		cefepime	resistant	==		15.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		gentamicin	susceptible	==		16.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		gentamicin	intermediate	==	8.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		imipenem	resistant	==		13.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		levofloxacin	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		levofloxacin	resistant	>=	8.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		meropenem	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		meropenem	resistant	>=	16.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		piperacillin	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		piperacillin-tazobactam	resistant	>=	128.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		sulbactam	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		trimethoprim-sulfamethoxazole	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		tetracycline	susceptible	==		16.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		tetracycline	susceptible	==	4.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		tobramycin	resistant	==		6.0		Becton Dickinson		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		tobramycin	resistant	>=	16.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
+Homo sapiens	2015	PRJNA278886	SAMN03892126	Klebsiella pneumoniae	Klebsiella pneumoniae		USA:Boston	ulcer		trimethoprim-sulfamethoxazole	resistant	==	4.0		Vitek	Biomérieux		CLSI	2015-07-21T00:00:00.000
