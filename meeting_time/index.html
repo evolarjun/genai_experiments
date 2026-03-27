@@ -205,6 +205,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
   <script>
     const DateTime = luxon.DateTime;
+    const Info = luxon.Info;
 
     // Timezone list including major global cities and common abbreviations
     const timezones = [
@@ -336,10 +337,8 @@
       headerDiv.appendChild(tzCorner);
 
       const days = [];
-      // Anchor the week start in the selected "From" timezone to avoid day shifts
-      const baseWeekStartInFromTz = currentWeekStart.setZone(selectedFromTz, { keepLocalTime: true });
       for (let i = 0; i < 7; i++) {
-        const dayDate = baseWeekStartInFromTz.plus({ days: i });
+        const dayDate = currentWeekStart.plus({ days: i }).setZone(selectedFromTz);
         days.push(dayDate);
         const dayCell = document.createElement("div");
         dayCell.className = "header-cell";
@@ -377,19 +376,8 @@
           slot.dataset.day = dayIndex;
           slot.dataset.hour = h;
 
-          // Make slot accessible: act like a button and be focusable
-          slot.setAttribute("role", "button");
-          slot.tabIndex = 0;
-
           slot.addEventListener("mousedown", handleSlotMouseDown);
           slot.addEventListener("mouseenter", handleSlotMouseEnter);
-          slot.addEventListener("keydown", function (event) {
-            if (event.key === " " || event.key === "Spacebar" || event.key === "Enter") {
-              // Prevent page scroll on Space and mimic mouse activation
-              event.preventDefault();
-              handleSlotMouseDown(event);
-            }
-          });
 
           dayCol.appendChild(slot);
         }
@@ -479,22 +467,22 @@
       const startTimeTo = startTimeFrom.setZone(selectedToTz);
       const endTimeTo = endTimeFrom.setZone(selectedToTz);
 
-      const formatString = "cccc, MMMM d 'from' h:mma";
-      const endFormatString = "h:mma";
+      const formatTime = (dt) => dt.minute === 0 ? dt.toFormat("ha").toLowerCase() : dt.toFormat("h:mma").toLowerCase();
+      const formatDate = (dt) => dt.toFormat("cccc MMMM d");
 
       const fromLabel = selectedFromTz === localTimezone ? "Your Time" : "Time";
       const fromTzName = timezones.find(t => t.id === selectedFromTz)?.label || selectedFromTz.split('/').pop();
       const toTzName = timezones.find(t => t.id === selectedToTz)?.label || selectedToTz.split('/').pop();
 
-      const fromString = `${fromLabel} (${fromTzName}): <strong>${startTimeFrom.toFormat(formatString)} to ${endTimeFrom.toFormat(endFormatString)}</strong>`;
+      const fromString = `${fromLabel} (${fromTzName}): <strong>${formatDate(startTimeFrom)} from ${formatTime(startTimeFrom)} to ${formatTime(endTimeFrom)}</strong>`;
 
       let toString = `Their Time (${toTzName}): <strong>`;
       // Check if "to" time spans a different day
       if (startTimeTo.hasSame(endTimeTo, 'day') && startTimeTo.hasSame(startTimeFrom, 'day')) {
-        toString += `${startTimeTo.toFormat("h:mma")} to ${endTimeTo.toFormat("h:mma")}</strong>`;
+        toString += `${formatTime(startTimeTo)} to ${formatTime(endTimeTo)}</strong>`;
       } else {
         // If the day is different in the destination timezone, include the date
-        toString += `${startTimeTo.toFormat(formatString)} to ${endTimeTo.toFormat(endFormatString)}</strong>`;
+        toString += `${formatDate(startTimeTo)} from ${formatTime(startTimeTo)} to ${formatTime(endTimeTo)}</strong>`;
       }
 
       resultPanel.innerHTML = `<p>${fromString}</p><p>${toString}</p>`;
