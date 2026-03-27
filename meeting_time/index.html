@@ -426,8 +426,19 @@
       updateResult();
     }
 
+    // Stop dragging when mouse goes up anywhere on the document
     document.addEventListener("mouseup", () => {
       isDragging = false;
+    });
+
+    // Also stop dragging if the mouse leaves the calendar area entirely
+    document.addEventListener("mouseleave", () => {
+      isDragging = false;
+    });
+
+    // Prevent default drag-and-drop behavior that might interfere with custom dragging
+    document.addEventListener("dragstart", (e) => {
+      e.preventDefault();
     });
 
     function renderSelection() {
