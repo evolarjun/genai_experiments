@@ -378,8 +378,19 @@
           slot.dataset.day = dayIndex;
           slot.dataset.hour = h;
 
+          // Make slot accessible: act like a button and be focusable
+          slot.setAttribute("role", "button");
+          slot.tabIndex = 0;
+
           slot.addEventListener("mousedown", handleSlotMouseDown);
           slot.addEventListener("mouseenter", handleSlotMouseEnter);
+          slot.addEventListener("keydown", function (event) {
+            if (event.key === " " || event.key === "Spacebar" || event.key === "Enter") {
+              // Prevent page scroll on Space and mimic mouse activation
+              event.preventDefault();
+              handleSlotMouseDown(event);
+            }
+          });
 
           dayCol.appendChild(slot);
         }
