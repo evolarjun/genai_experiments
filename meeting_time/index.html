@@ -337,8 +337,10 @@
       headerDiv.appendChild(tzCorner);
 
       const days = [];
+      // Anchor the week start in the selected "From" timezone to avoid day shifts
+      const baseWeekStartInFromTz = currentWeekStart.setZone(selectedFromTz, { keepLocalTime: true });
       for (let i = 0; i < 7; i++) {
-        const dayDate = currentWeekStart.plus({ days: i }).setZone(selectedFromTz);
+        const dayDate = baseWeekStartInFromTz.plus({ days: i });
         days.push(dayDate);
         const dayCell = document.createElement("div");
         dayCell.className = "header-cell";
