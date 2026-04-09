@@ -1,0 +1,2 @@
+https://example.invalid
+http://localhost:8888/test_site/page2.html#bad

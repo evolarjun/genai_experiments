@@ -1,0 +1,10 @@
+use URI;
+use LWP::UserAgent;
+my $ua = LWP::UserAgent->new(timeout=>10, agent=>'LinkChecker-PD/1.0', max_redirect=>0);
+my $res = $ua->get('https://www.ncbi.nlm.nih.gov/pathogens/docs/gcp');
+print "Code: ", $res->code, "\nLocation: ", $res->header('Location'), "\n\n";
+my $res2 = $ua->get('https://www.ncbi.nlm.nih.gov/pathogens/docs/gcp/');
+print "Code2: ", $res2->code, "\n";
+print "Content type: ", $res2->header('Content-Type'), "\n";
+my $content_len = length($res2->decoded_content || '');
+print "Content len: ", $content_len, "\n";
