@@ -2,6 +2,8 @@
 use strict;
 use warnings;
 
+$| = 1; # Enable autoflush on STDOUT
+
 use Getopt::Long;
 use Pod::Usage;
 use URI;
@@ -11,19 +13,55 @@ use HTML::Parser;
 my $output_file;
 my $root_url_str;
 my $skip_file;
+my $report_file;
+my $one_page;
+my $report_mode = 1; # Always enabled
 my $help;
 
 GetOptions(
     "output|o=s" => \$output_file,
     "root|r=s"   => \$root_url_str,
     "skip|s=s"   => \$skip_file,
+    "report=s"   => \$report_file,
+    "one-page"   => \$one_page,
     "help|h"     => \$help,
 ) or pod2usage(2);
 
 pod2usage(1) if $help;
 
+# Open report file if specified
+my $report_fh;
+if ($report_file) {
+    open $report_fh, '>', $report_file or die "Cannot open report file $report_file: $!\n";
+}
+
+sub report_print {
+    my (@msg) = @_;
+    print @msg;
+    if ($report_fh) {
+        print $report_fh @msg;
+    }
+}
+
 my $start_url_str = shift @ARGV;
-die "Usage: $0 [--output results.tsv] <URL>\n" unless $start_url_str;
+die "Usage: $0 [--output results.tsv] [--report FILE] [--one-page] <URL|FILE>\n" unless $start_url_str;
+
+# Load skip file early if it exists (so both file reporting and crawling can use it)
+my @skip_prefixes;
+if ($skip_file) {
+    open my $sfh, '<', $skip_file or die "Cannot open skip file $skip_file: $!\n";
+    while (my $line = <$sfh>) {
+        $line =~ s/^\s+|\s+$//g;
+        push @skip_prefixes, $line if $line ne '';
+    }
+    close $sfh;
+}
+
+# Check if input is a local file
+if (-f $start_url_str) {
+    generate_report_from_file($start_url_str);
+    exit 0;
+}
 
 my $start_uri = URI->new($start_url_str);
 die "Invalid starting URL scheme: must be http or https\n" 
@@ -51,16 +89,6 @@ if ($root_url_str) {
     $scope_prefix = $start_uri->canonical->as_string unless $scope_prefix; # fallback
 }
 
-my @skip_prefixes;
-if ($skip_file) {
-    open my $sfh, '<', $skip_file or die "Cannot open skip file $skip_file: $!\n";
-    while (my $line = <$sfh>) {
-        $line =~ s/^\s+|\s+$//g;
-        push @skip_prefixes, $line if $line ne '';
-    }
-    close $sfh;
-}
-
 my %visited;          # url => status_string
 my %page_ids;         # url => \%ids
 my @results;          # result rows
@@ -73,6 +101,154 @@ my $ua = LWP::UserAgent->new(
     agent        => 'LinkChecker-PD/1.0',
     ssl_opts     => { verify_hostname => 0 },
 );
+
+sub is_error {
+    my ($outcome) = @_;
+    return ($outcome !~ /^2/ && $outcome !~ /^3/ && $outcome !~ /OK/ && $outcome ne 'Skipped') ? 1 : 0;
+}
+
+sub is_url_skipped {
+    my ($dest) = @_;
+    return 0 unless defined $dest;
+    for my $prefix (@skip_prefixes) {
+        next if $prefix =~ /^#/;
+        if (index($dest, $prefix) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+sub is_frag_skipped {
+    my ($frag) = @_;
+    return 0 unless defined $frag;
+    for my $prefix (@skip_prefixes) {
+        if ($prefix =~ /^#/ && "#$frag" eq $prefix) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+sub is_link_skipped {
+    my ($dest) = @_;
+    return 0 unless defined $dest;
+    my ($url, $frag) = split(/#/, $dest, 2);
+    return 1 if is_url_skipped($dest);
+    return 1 if is_frag_skipped($frag);
+    return 0;
+}
+
+sub print_grouped_report {
+    my ($results_ref) = @_;
+    my %grouped;
+    my $has_errors = 0;
+
+    for my $r (@$results_ref) {
+        my $dest = $r->{dest};
+        my $outcome = $r->{outcome};
+        
+        # Check skips
+        next if is_link_skipped($dest);
+
+        if (is_error($outcome)) {
+            $has_errors = 1;
+            $grouped{$dest} //= { status => $outcome, refs => [] };
+            push @{ $grouped{$dest}->{refs} }, { src => $r->{src}, line => $r->{line} };
+        }
+    }
+
+    report_print "\n=== Broken Links Report ===\n";
+    if (!$has_errors) {
+        report_print "No broken links found.\n";
+        return;
+    }
+
+    for my $dest (sort keys %grouped) {
+        my $status = $grouped{$dest}->{status};
+        report_print "\nTarget: $dest ($status)\n";
+        report_print "  Referenced from:\n";
+        for my $ref (@{ $grouped{$dest}->{refs} }) {
+            report_print "    - $ref->{src}:$ref->{line}\n";
+        }
+    }
+}
+
+sub generate_report_from_file {
+    my ($file) = @_;
+    open my $fh, '<', $file or die "Cannot open file $file: $!\n";
+    
+    my $header = <$fh>;
+    if (!$header) {
+        die "Error: File $file is empty\n";
+    }
+    chomp $header;
+    my @cols = split(/\t/, $header);
+    if (@cols < 4 || $cols[0] ne 'Source URL' || $cols[3] ne 'Status') {
+        warn "Warning: File header does not match expected format 'Source URL\\tLine\\tDestination URL\\tStatus'. Attempting to parse anyway.\n";
+    }
+
+    my @file_results;
+    my $total_checks = 0;
+    my %page_ok;
+    
+    while (my $line = <$fh>) {
+        chomp $line;
+        next if $line eq '';
+        my @fields = split(/\t/, $line);
+        next if @fields < 4;
+        
+        my ($src, $line_num, $dest, $outcome) = @fields;
+        $total_checks++;
+        
+        # Check skips
+        my $is_skipped = is_link_skipped($dest);
+        
+        my $is_err = 0;
+        if (!$is_skipped) {
+            $is_err = is_error($outcome);
+        }
+
+        if ($is_err) {
+            $page_ok{$src} = 0 if $src ne '(unknown)';
+        } else {
+            $page_ok{$src} = 1 unless exists $page_ok{$src} || $src eq '(unknown)';
+        }
+        
+        push @file_results, { src => $src, line => $line_num, dest => $dest, outcome => $outcome };
+    }
+    close $fh;
+
+    report_print "Generating report from file: $file\n";
+    print_grouped_report(\@file_results);
+
+    report_print "\n=== Summary ===\n";
+    my $broken_count = 0;
+    for my $url (sort keys %page_ok) {
+        if (!$page_ok{$url}) {
+            $broken_count++;
+            report_print sprintf("%-50s %s\n", $url, "NOT OK");
+        }
+    }
+    
+    # Calculate unique errors after filtering skips
+    my $total_errors = 0;
+    for my $r (@file_results) {
+        my $dest = $r->{dest};
+        if (!is_link_skipped($dest) && is_error($r->{outcome})) {
+            $total_errors++;
+        }
+    }
+
+    report_print "---\n";
+    report_print "Total links checked: $total_checks\n";
+    report_print "Total errors: $total_errors\n";
+    report_print "Broken pages: $broken_count\n";
+
+    if ($report_fh) {
+        close $report_fh;
+    }
+}
 
 sub classify_error {
     my ($response) = @_;
@@ -91,7 +267,7 @@ sub emit_result {
     my ($src, $line, $dest, $outcome) = @_;
     $src //= '(unknown)';
     $line //= 'NA';
-    print "[$src:$line] -> $dest ... $outcome\n";
+    print STDERR "[$src:$line] -> $dest ... $outcome\n";
     push @results, { src => $src, line => $line, dest => $dest, outcome => $outcome };
     $page_ok{$src} = 0 if $outcome !~ /^2/ && $outcome !~ /^3/ && $outcome !~ /OK/ && $outcome ne 'Skipped';
 }
@@ -129,7 +305,7 @@ sub fetch_with_redirects {
         $res = $ua->request($req);
         
         my $code = $res->code;
-        if ($method eq 'HEAD' && $code == 405) {
+        if ($method eq 'HEAD' && ($code == 405 || $code >= 400)) {
             $method = 'GET';
             next;
         }
@@ -147,7 +323,7 @@ sub fetch_with_redirects {
             
             $current_target = $loc_abs;
             $hops++;
-            $method = 'GET'; # subsequent requests always GET
+            $method = 'GET' if $method ne 'HEAD';
         } else {
             my $outcome = classify_error($res);
             $visited{$current_target} = $outcome unless exists $visited{$current_target};
@@ -212,7 +388,7 @@ sub crawl {
         if ($outcome !~ /200 OK/ && $outcome !~ /OK/) {
             $page_ok{$url} = 0;
             $page_ok{$final_url} = 0 if $final_url ne $url;
-            print "[START:NA] -> $final_url ... $outcome\n";
+            print STDERR "[START:NA] -> $final_url ... $outcome\n";
         }
 
         if ($final_url ne $url) {
@@ -232,14 +408,7 @@ sub crawl {
             next unless $target_url; # Handle non-http schemes
             
             my $full_target = $frag ? "$target_url#$frag" : $target_url;
-            my $is_skipped = 0;
-            for my $prefix (@skip_prefixes) {
-                if (index($full_target, $prefix) == 0) {
-                    $is_skipped = 1;
-                    last;
-                }
-            }
-            if ($is_skipped) {
+            if (is_url_skipped($full_target)) {
                 $visited{$target_url} = "Skipped" unless exists $visited{$target_url};
                 emit_result($final_url, $l->{line}, $full_target, "Skipped");
                 next;
@@ -260,7 +429,7 @@ sub crawl {
                     # If it's internal and an HTML page, parse it.
                     if ($f_res->header('Content-Type') && $f_res->header('Content-Type') =~ /html/i) {
                         parse_html_content($f_final, $f_res->decoded_content);
-                        push @queue, $f_final unless $page_spidered{$f_final};
+                        push @queue, $f_final unless $one_page || $page_spidered{$f_final};
                     } else {
                         $page_ids{$f_final} = {}; # Not HTML, no IDs
                     }
@@ -271,8 +440,8 @@ sub crawl {
                 emit_result($final_url, $l->{line}, $target_url, $cached_out);
             }
 
-            # Check fragments
-            if ($frag && $target_is_internal) {
+            # Check fragments (skip client-side SPA routes starting with / and skipped fragments)
+            if ($frag && $target_is_internal && $frag !~ m{^/} && !is_frag_skipped($frag)) {
                 push @fragments_to_check, { src => $final_url, line => $l->{line}, dest => $target_url, frag => $frag };
             }
         }
@@ -299,21 +468,43 @@ sub crawl {
 print "Starting crawl of $start_url_str\n";
 crawl($start_url_str);
 
-print "\n=== Summary ===\n";
+print_grouped_report(\@results);
+
+print "\n"; # Blank line before summary (goes to STDOUT/file)
+report_print "=== Summary ===\n";
 my $total = 0;
 my $broken_count = 0;
 for my $url (sort keys %page_ok) {
     if (exists $page_spidered{$url} && $page_spidered{$url} == 1) {
         $total++;
-        my $status = $page_ok{$url} ? "OK" : "NOT OK";
         if (!$page_ok{$url}) {
             $broken_count++;
+            report_print sprintf("%-50s %s\n", $url, "NOT OK");
         }
-        printf "%-50s %s\n", $url, $status;
     }
 }
-print "---\n";
-print "Total pages spidered: $total\n";
+report_print "---\n";
+my $total_errors = 0;
+for my $r (@results) {
+    my $dest = $r->{dest};
+    my $is_skipped = 0;
+    for my $prefix (@skip_prefixes) {
+        if (index($dest, $prefix) == 0) {
+            $is_skipped = 1;
+            last;
+        }
+    }
+    if (!$is_skipped && is_error($r->{outcome})) {
+        $total_errors++;
+    }
+}
+report_print "Total pages spidered: $total\n";
+report_print "Total errors: $total_errors\n";
+report_print "Broken pages: $broken_count\n";
+
+if ($report_fh) {
+    close $report_fh;
+}
 
 if ($output_file) {
     open my $fh, '>', $output_file or die "Cannot open output file $output_file: $!";
@@ -331,12 +522,14 @@ linkchecker.pl - A recursive link checker
 
 =head1 SYNOPSIS
 
-linkchecker.pl [options] <URL>
+linkchecker.pl [options] <URL|FILE>
 
  Options:
    -o, --output FILE    Tab-delimited output file
    -r, --root URL       Limit spidering to URLs under this root
    -s, --skip FILE      File containing line-separated URL prefixes to skip
+   --report FILE        Save the grouped error report and summary to FILE
+   --one-page           Only check links on the starting page (do not spider recursively)
    -h, --help           Print this help message
 
 =cut
