@@ -16,53 +16,64 @@
     }
 
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: var(--text-color);
       margin: 0;
-      padding: 20px;
+      padding: 12px;
       background-color: var(--bg-color);
       display: flex;
       flex-direction: column;
       align-items: center;
+      box-sizing: border-box;
+      height: 100vh;
+      overflow: hidden;
     }
 
     .container {
       max-width: 1200px;
       width: 100%;
+      height: 100%;
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      padding: 20px;
+      padding: 14px 18px;
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .top-controls {
+      flex-shrink: 0;
     }
 
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 10px;
       flex-wrap: wrap;
-      gap: 15px;
+      gap: 10px;
     }
 
     .title-nav {
       display: flex;
       align-items: center;
-      gap: 15px;
+      gap: 10px;
     }
 
     h1 {
       margin: 0;
-      font-size: 1.5rem;
+      font-size: 1.3rem;
     }
 
     .nav-btn {
       background: #fff;
       border: 1px solid var(--border-color);
-      padding: 8px 12px;
+      padding: 5px 10px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 1rem;
+      font-size: 0.9rem;
     }
 
     .nav-btn:hover {
@@ -71,7 +82,7 @@
 
     .timezone-controls {
       display: flex;
-      gap: 20px;
+      gap: 15px;
       align-items: center;
       flex-wrap: wrap;
     }
@@ -79,23 +90,81 @@
     .timezone-group {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
+      font-size: 0.9rem;
     }
 
     select {
-      padding: 8px;
+      padding: 5px 8px;
       border: 1px solid var(--border-color);
       border-radius: 4px;
-      font-size: 1rem;
-      max-width: 250px;
+      font-size: 0.9rem;
+      max-width: 220px;
+    }
+
+    .result-panel {
+      margin-bottom: 10px;
+      padding: 10px 14px;
+      background: #e9ecef;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .result-empty {
+      text-align: center;
+      color: #666;
+    }
+
+    .result-row {
+      display: grid;
+      grid-template-columns: minmax(130px, 180px) 105px auto;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .result-label {
+      font-weight: 600;
+      color: #495057;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result-date {
+      color: #333;
+      white-space: nowrap;
+    }
+
+    .result-time {
+      font-weight: bold;
+      color: #0056b3;
+      font-size: 0.95rem;
+      white-space: nowrap;
+    }
+
+    /* Scrollable calendar viewport container */
+    .calendar-viewport {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: #fff;
+      position: relative;
+      -webkit-overflow-scrolling: touch;
     }
 
     .calendar {
       display: grid;
-      grid-template-columns: 80px repeat(7, 1fr);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
+      grid-template-columns: 65px repeat(7, minmax(80px, 1fr));
       background: #fff;
+      min-width: 625px;
     }
 
     .calendar-header {
@@ -103,30 +172,55 @@
     }
 
     .header-cell {
-      padding: 10px;
-      background: var(--bg-color);
-      border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 6px 4px;
+      background: #f1f3f5;
+      border-bottom: 2px solid var(--border-color);
       border-left: 1px solid var(--border-color);
       text-align: center;
-      font-weight: bold;
+      font-weight: 600;
+      font-size: 0.85rem;
       box-sizing: border-box;
     }
 
+    /* Fixed top-left corner (sticky both vertically and horizontally) */
     .header-cell:first-child {
       border-left: none;
+      position: sticky;
+      left: 0;
+      top: 0;
+      z-index: 20;
+      background: #e9ecef;
+      border-right: 1px solid var(--border-color);
     }
 
     .calendar-body {
       display: contents;
     }
 
+    /* Fixed time column on the left (sticky during horizontal scrolling) */
+    .day-column.time-column {
+      position: sticky;
+      left: 0;
+      z-index: 15;
+      background: #f8f9fa;
+      border-left: none;
+      border-right: 1px solid var(--border-color);
+    }
+
     .time-label {
-      padding: 10px;
+      padding: 4px 6px;
       text-align: right;
       border-bottom: 1px solid var(--border-color);
       color: #666;
-      font-size: 0.9rem;
-      background: var(--bg-color);
+      font-size: 0.75rem;
+      background: #f8f9fa;
+      height: 28px;
+      box-sizing: border-box;
+      line-height: 20px;
+      user-select: none;
     }
 
     .day-column {
@@ -136,12 +230,25 @@
     }
 
     .hour-slot {
-      height: 40px;
-      border-bottom: 1px solid var(--border-color);
+      height: 28px;
+      border-bottom: 1px solid #eee;
       background: #fff;
       cursor: pointer;
       box-sizing: border-box;
-      transition: background-color 0.1s;
+      transition: background-color 0.08s;
+    }
+
+    /* Working hours (8am - 5pm: hours 8 through 16) shaded in light gray */
+    .hour-slot[data-hour="8"],
+    .hour-slot[data-hour="9"],
+    .hour-slot[data-hour="10"],
+    .hour-slot[data-hour="11"],
+    .hour-slot[data-hour="12"],
+    .hour-slot[data-hour="13"],
+    .hour-slot[data-hour="14"],
+    .hour-slot[data-hour="15"],
+    .hour-slot[data-hour="16"] {
+      background: #f1f3f5;
     }
 
     .hour-slot:hover {
@@ -149,22 +256,47 @@
     }
 
     .hour-slot.selected {
-      background: var(--selected-bg);
+      background: var(--selected-bg) !important;
       border-color: var(--selected-border);
     }
 
-    .result-panel {
-      margin-top: 20px;
-      padding: 15px;
-      background: #e9ecef;
-      border-radius: 8px;
-      text-align: center;
-      font-size: 1.1rem;
-      min-height: 24px;
-    }
+    /* Mobile optimizations */
+    @media (max-width: 600px) {
+      body {
+        padding: 6px;
+      }
 
-    .result-panel p {
-      margin: 5px 0;
+      .container {
+        padding: 10px;
+      }
+
+      h1 {
+        font-size: 1.1rem;
+      }
+
+      .timezone-controls {
+        gap: 8px;
+      }
+
+      select {
+        max-width: 140px;
+        font-size: 0.8rem;
+        padding: 4px 6px;
+      }
+
+      .result-panel {
+        font-size: 0.85rem;
+        padding: 6px 10px;
+      }
+
+      .result-row {
+        grid-template-columns: minmax(105px, 140px) 85px auto;
+        gap: 6px;
+      }
+
+      .result-time {
+        font-size: 0.85rem;
+      }
     }
 
   </style>
@@ -172,41 +304,298 @@
 <body>
 
   <div class="container">
-    <header>
-      <div class="title-nav">
-        <h1>World Meeting Planner</h1>
-        <button id="prev-week" class="nav-btn">&larr;</button>
-        <span id="current-month-year" style="font-weight: bold; font-size: 1.1rem;"></span>
-        <button id="next-week" class="nav-btn">&rarr;</button>
-        <button id="today-btn" class="nav-btn">Today</button>
-      </div>
-
-      <div class="timezone-controls">
-        <div class="timezone-group">
-          <label for="from-tz">From:</label>
-          <select id="from-tz"></select>
+    <div class="top-controls">
+      <header>
+        <div class="title-nav">
+          <h1>World Meeting Planner</h1>
+          <button id="prev-week" class="nav-btn">&larr;</button>
+          <span id="current-month-year" style="font-weight: bold; font-size: 1.1rem;"></span>
+          <button id="next-week" class="nav-btn">&rarr;</button>
+          <button id="today-btn" class="nav-btn">Today</button>
         </div>
-        <div class="timezone-group">
-          <label for="to-tz">To:</label>
-          <select id="to-tz"></select>
-        </div>
-      </div>
-    </header>
 
-    <div class="calendar" id="calendar">
-      <!-- Headers and Grid will be generated by JS -->
+        <div class="timezone-controls">
+          <div class="timezone-group">
+            <label for="from-tz">From:</label>
+            <select id="from-tz">
+              <option value="local" selected>Local Time</option>
+              <option value="UTC">UTC</option>
+              <option value="GMT">GMT</option>
+              <option value="Europe/London">London (GMT/BST)</option>
+              <option value="Europe/Paris">Paris (CET/CEST)</option>
+              <option value="Europe/Copenhagen">Copenhagen (CET/CEST)</option>
+              <option value="Europe/Rome">Rome (CET/CEST)</option>
+              <option value="America/New_York">New York (EST/EDT)</option>
+              <option value="America/Chicago">Chicago (CST/CDT)</option>
+              <option value="America/Denver">Denver (MST/MDT)</option>
+              <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+              <option value="America/Mexico_City">Mexico City (CST)</option>
+              <option value="Asia/Tokyo">Tokyo (JST)</option>
+              <option value="Asia/Shanghai">Shanghai (CST)</option>
+              <option value="Asia/Kolkata">New Delhi (IST)</option>
+              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+              <option value="Australia/Melbourne">Melbourne (AEST/AEDT)</option>
+              <option value="Pacific/Auckland">Auckland (NZST/NZDT)</option>
+            </select>
+          </div>
+          <div class="timezone-group">
+            <label for="to-tz">To:</label>
+            <select id="to-tz">
+              <option value="local">Local Time</option>
+              <option value="UTC" selected>UTC</option>
+              <option value="GMT">GMT</option>
+              <option value="Europe/London">London (GMT/BST)</option>
+              <option value="Europe/Paris">Paris (CET/CEST)</option>
+              <option value="Europe/Copenhagen">Copenhagen (CET/CEST)</option>
+              <option value="Europe/Rome">Rome (CET/CEST)</option>
+              <option value="America/New_York">New York (EST/EDT)</option>
+              <option value="America/Chicago">Chicago (CST/CDT)</option>
+              <option value="America/Denver">Denver (MST/MDT)</option>
+              <option value="America/Los_Angeles">Los Angeles (PST/PDT)</option>
+              <option value="America/Mexico_City">Mexico City (CST)</option>
+              <option value="Asia/Tokyo">Tokyo (JST)</option>
+              <option value="Asia/Shanghai">Shanghai (CST)</option>
+              <option value="Asia/Kolkata">New Delhi (IST)</option>
+              <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+              <option value="Australia/Melbourne">Melbourne (AEST/AEDT)</option>
+              <option value="Pacific/Auckland">Auckland (NZST/NZDT)</option>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <div class="result-panel" id="result-panel">
+        <div class="result-empty">Select a time slot to see details.</div>
+      </div>
     </div>
 
-    <div class="result-panel" id="result-panel">
-      Select a time slot to see details.
+    <div class="calendar-viewport" id="calendar-viewport">
+      <div class="calendar" id="calendar">
+      <div class="calendar-header">
+        <div class="header-cell" id="tz-corner" style="font-size: 0.8rem; color: #666;">Time<br>(Local)</div>
+        <div class="header-cell" id="day-header-0"></div>
+        <div class="header-cell" id="day-header-1"></div>
+        <div class="header-cell" id="day-header-2"></div>
+        <div class="header-cell" id="day-header-3"></div>
+        <div class="header-cell" id="day-header-4"></div>
+        <div class="header-cell" id="day-header-5"></div>
+        <div class="header-cell" id="day-header-6"></div>
+      </div>
+      <div class="calendar-body">
+        <div class="day-column time-column">
+          <div class="time-label">12am</div>
+          <div class="time-label">1am</div>
+          <div class="time-label">2am</div>
+          <div class="time-label">3am</div>
+          <div class="time-label">4am</div>
+          <div class="time-label">5am</div>
+          <div class="time-label">6am</div>
+          <div class="time-label">7am</div>
+          <div class="time-label">8am</div>
+          <div class="time-label">9am</div>
+          <div class="time-label">10am</div>
+          <div class="time-label">11am</div>
+          <div class="time-label">12pm</div>
+          <div class="time-label">1pm</div>
+          <div class="time-label">2pm</div>
+          <div class="time-label">3pm</div>
+          <div class="time-label">4pm</div>
+          <div class="time-label">5pm</div>
+          <div class="time-label">6pm</div>
+          <div class="time-label">7pm</div>
+          <div class="time-label">8pm</div>
+          <div class="time-label">9pm</div>
+          <div class="time-label">10pm</div>
+          <div class="time-label">11pm</div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="0" data-hour="0"></div>
+          <div class="hour-slot" data-day="0" data-hour="1"></div>
+          <div class="hour-slot" data-day="0" data-hour="2"></div>
+          <div class="hour-slot" data-day="0" data-hour="3"></div>
+          <div class="hour-slot" data-day="0" data-hour="4"></div>
+          <div class="hour-slot" data-day="0" data-hour="5"></div>
+          <div class="hour-slot" data-day="0" data-hour="6"></div>
+          <div class="hour-slot" data-day="0" data-hour="7"></div>
+          <div class="hour-slot" data-day="0" data-hour="8"></div>
+          <div class="hour-slot" data-day="0" data-hour="9"></div>
+          <div class="hour-slot" data-day="0" data-hour="10"></div>
+          <div class="hour-slot" data-day="0" data-hour="11"></div>
+          <div class="hour-slot" data-day="0" data-hour="12"></div>
+          <div class="hour-slot" data-day="0" data-hour="13"></div>
+          <div class="hour-slot" data-day="0" data-hour="14"></div>
+          <div class="hour-slot" data-day="0" data-hour="15"></div>
+          <div class="hour-slot" data-day="0" data-hour="16"></div>
+          <div class="hour-slot" data-day="0" data-hour="17"></div>
+          <div class="hour-slot" data-day="0" data-hour="18"></div>
+          <div class="hour-slot" data-day="0" data-hour="19"></div>
+          <div class="hour-slot" data-day="0" data-hour="20"></div>
+          <div class="hour-slot" data-day="0" data-hour="21"></div>
+          <div class="hour-slot" data-day="0" data-hour="22"></div>
+          <div class="hour-slot" data-day="0" data-hour="23"></div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="1" data-hour="0"></div>
+          <div class="hour-slot" data-day="1" data-hour="1"></div>
+          <div class="hour-slot" data-day="1" data-hour="2"></div>
+          <div class="hour-slot" data-day="1" data-hour="3"></div>
+          <div class="hour-slot" data-day="1" data-hour="4"></div>
+          <div class="hour-slot" data-day="1" data-hour="5"></div>
+          <div class="hour-slot" data-day="1" data-hour="6"></div>
+          <div class="hour-slot" data-day="1" data-hour="7"></div>
+          <div class="hour-slot" data-day="1" data-hour="8"></div>
+          <div class="hour-slot" data-day="1" data-hour="9"></div>
+          <div class="hour-slot" data-day="1" data-hour="10"></div>
+          <div class="hour-slot" data-day="1" data-hour="11"></div>
+          <div class="hour-slot" data-day="1" data-hour="12"></div>
+          <div class="hour-slot" data-day="1" data-hour="13"></div>
+          <div class="hour-slot" data-day="1" data-hour="14"></div>
+          <div class="hour-slot" data-day="1" data-hour="15"></div>
+          <div class="hour-slot" data-day="1" data-hour="16"></div>
+          <div class="hour-slot" data-day="1" data-hour="17"></div>
+          <div class="hour-slot" data-day="1" data-hour="18"></div>
+          <div class="hour-slot" data-day="1" data-hour="19"></div>
+          <div class="hour-slot" data-day="1" data-hour="20"></div>
+          <div class="hour-slot" data-day="1" data-hour="21"></div>
+          <div class="hour-slot" data-day="1" data-hour="22"></div>
+          <div class="hour-slot" data-day="1" data-hour="23"></div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="2" data-hour="0"></div>
+          <div class="hour-slot" data-day="2" data-hour="1"></div>
+          <div class="hour-slot" data-day="2" data-hour="2"></div>
+          <div class="hour-slot" data-day="2" data-hour="3"></div>
+          <div class="hour-slot" data-day="2" data-hour="4"></div>
+          <div class="hour-slot" data-day="2" data-hour="5"></div>
+          <div class="hour-slot" data-day="2" data-hour="6"></div>
+          <div class="hour-slot" data-day="2" data-hour="7"></div>
+          <div class="hour-slot" data-day="2" data-hour="8"></div>
+          <div class="hour-slot" data-day="2" data-hour="9"></div>
+          <div class="hour-slot" data-day="2" data-hour="10"></div>
+          <div class="hour-slot" data-day="2" data-hour="11"></div>
+          <div class="hour-slot" data-day="2" data-hour="12"></div>
+          <div class="hour-slot" data-day="2" data-hour="13"></div>
+          <div class="hour-slot" data-day="2" data-hour="14"></div>
+          <div class="hour-slot" data-day="2" data-hour="15"></div>
+          <div class="hour-slot" data-day="2" data-hour="16"></div>
+          <div class="hour-slot" data-day="2" data-hour="17"></div>
+          <div class="hour-slot" data-day="2" data-hour="18"></div>
+          <div class="hour-slot" data-day="2" data-hour="19"></div>
+          <div class="hour-slot" data-day="2" data-hour="20"></div>
+          <div class="hour-slot" data-day="2" data-hour="21"></div>
+          <div class="hour-slot" data-day="2" data-hour="22"></div>
+          <div class="hour-slot" data-day="2" data-hour="23"></div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="3" data-hour="0"></div>
+          <div class="hour-slot" data-day="3" data-hour="1"></div>
+          <div class="hour-slot" data-day="3" data-hour="2"></div>
+          <div class="hour-slot" data-day="3" data-hour="3"></div>
+          <div class="hour-slot" data-day="3" data-hour="4"></div>
+          <div class="hour-slot" data-day="3" data-hour="5"></div>
+          <div class="hour-slot" data-day="3" data-hour="6"></div>
+          <div class="hour-slot" data-day="3" data-hour="7"></div>
+          <div class="hour-slot" data-day="3" data-hour="8"></div>
+          <div class="hour-slot" data-day="3" data-hour="9"></div>
+          <div class="hour-slot" data-day="3" data-hour="10"></div>
+          <div class="hour-slot" data-day="3" data-hour="11"></div>
+          <div class="hour-slot" data-day="3" data-hour="12"></div>
+          <div class="hour-slot" data-day="3" data-hour="13"></div>
+          <div class="hour-slot" data-day="3" data-hour="14"></div>
+          <div class="hour-slot" data-day="3" data-hour="15"></div>
+          <div class="hour-slot" data-day="3" data-hour="16"></div>
+          <div class="hour-slot" data-day="3" data-hour="17"></div>
+          <div class="hour-slot" data-day="3" data-hour="18"></div>
+          <div class="hour-slot" data-day="3" data-hour="19"></div>
+          <div class="hour-slot" data-day="3" data-hour="20"></div>
+          <div class="hour-slot" data-day="3" data-hour="21"></div>
+          <div class="hour-slot" data-day="3" data-hour="22"></div>
+          <div class="hour-slot" data-day="3" data-hour="23"></div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="4" data-hour="0"></div>
+          <div class="hour-slot" data-day="4" data-hour="1"></div>
+          <div class="hour-slot" data-day="4" data-hour="2"></div>
+          <div class="hour-slot" data-day="4" data-hour="3"></div>
+          <div class="hour-slot" data-day="4" data-hour="4"></div>
+          <div class="hour-slot" data-day="4" data-hour="5"></div>
+          <div class="hour-slot" data-day="4" data-hour="6"></div>
+          <div class="hour-slot" data-day="4" data-hour="7"></div>
+          <div class="hour-slot" data-day="4" data-hour="8"></div>
+          <div class="hour-slot" data-day="4" data-hour="9"></div>
+          <div class="hour-slot" data-day="4" data-hour="10"></div>
+          <div class="hour-slot" data-day="4" data-hour="11"></div>
+          <div class="hour-slot" data-day="4" data-hour="12"></div>
+          <div class="hour-slot" data-day="4" data-hour="13"></div>
+          <div class="hour-slot" data-day="4" data-hour="14"></div>
+          <div class="hour-slot" data-day="4" data-hour="15"></div>
+          <div class="hour-slot" data-day="4" data-hour="16"></div>
+          <div class="hour-slot" data-day="4" data-hour="17"></div>
+          <div class="hour-slot" data-day="4" data-hour="18"></div>
+          <div class="hour-slot" data-day="4" data-hour="19"></div>
+          <div class="hour-slot" data-day="4" data-hour="20"></div>
+          <div class="hour-slot" data-day="4" data-hour="21"></div>
+          <div class="hour-slot" data-day="4" data-hour="22"></div>
+          <div class="hour-slot" data-day="4" data-hour="23"></div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="5" data-hour="0"></div>
+          <div class="hour-slot" data-day="5" data-hour="1"></div>
+          <div class="hour-slot" data-day="5" data-hour="2"></div>
+          <div class="hour-slot" data-day="5" data-hour="3"></div>
+          <div class="hour-slot" data-day="5" data-hour="4"></div>
+          <div class="hour-slot" data-day="5" data-hour="5"></div>
+          <div class="hour-slot" data-day="5" data-hour="6"></div>
+          <div class="hour-slot" data-day="5" data-hour="7"></div>
+          <div class="hour-slot" data-day="5" data-hour="8"></div>
+          <div class="hour-slot" data-day="5" data-hour="9"></div>
+          <div class="hour-slot" data-day="5" data-hour="10"></div>
+          <div class="hour-slot" data-day="5" data-hour="11"></div>
+          <div class="hour-slot" data-day="5" data-hour="12"></div>
+          <div class="hour-slot" data-day="5" data-hour="13"></div>
+          <div class="hour-slot" data-day="5" data-hour="14"></div>
+          <div class="hour-slot" data-day="5" data-hour="15"></div>
+          <div class="hour-slot" data-day="5" data-hour="16"></div>
+          <div class="hour-slot" data-day="5" data-hour="17"></div>
+          <div class="hour-slot" data-day="5" data-hour="18"></div>
+          <div class="hour-slot" data-day="5" data-hour="19"></div>
+          <div class="hour-slot" data-day="5" data-hour="20"></div>
+          <div class="hour-slot" data-day="5" data-hour="21"></div>
+          <div class="hour-slot" data-day="5" data-hour="22"></div>
+          <div class="hour-slot" data-day="5" data-hour="23"></div>
+        </div>
+        <div class="day-column">
+          <div class="hour-slot" data-day="6" data-hour="0"></div>
+          <div class="hour-slot" data-day="6" data-hour="1"></div>
+          <div class="hour-slot" data-day="6" data-hour="2"></div>
+          <div class="hour-slot" data-day="6" data-hour="3"></div>
+          <div class="hour-slot" data-day="6" data-hour="4"></div>
+          <div class="hour-slot" data-day="6" data-hour="5"></div>
+          <div class="hour-slot" data-day="6" data-hour="6"></div>
+          <div class="hour-slot" data-day="6" data-hour="7"></div>
+          <div class="hour-slot" data-day="6" data-hour="8"></div>
+          <div class="hour-slot" data-day="6" data-hour="9"></div>
+          <div class="hour-slot" data-day="6" data-hour="10"></div>
+          <div class="hour-slot" data-day="6" data-hour="11"></div>
+          <div class="hour-slot" data-day="6" data-hour="12"></div>
+          <div class="hour-slot" data-day="6" data-hour="13"></div>
+          <div class="hour-slot" data-day="6" data-hour="14"></div>
+          <div class="hour-slot" data-day="6" data-hour="15"></div>
+          <div class="hour-slot" data-day="6" data-hour="16"></div>
+          <div class="hour-slot" data-day="6" data-hour="17"></div>
+          <div class="hour-slot" data-day="6" data-hour="18"></div>
+          <div class="hour-slot" data-day="6" data-hour="19"></div>
+          <div class="hour-slot" data-day="6" data-hour="20"></div>
+          <div class="hour-slot" data-day="6" data-hour="21"></div>
+          <div class="hour-slot" data-day="6" data-hour="22"></div>
+          <div class="hour-slot" data-day="6" data-hour="23"></div>
+        </div>
+      </div>
     </div>
   </div>
+  </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
   <script>
-    const DateTime = luxon.DateTime;
-    const Info = luxon.Info;
-
     // Timezone list including major global cities and common abbreviations
     const timezones = [
       { id: "local", label: "Local Time" },
@@ -214,16 +603,18 @@
       { id: "GMT", label: "GMT" },
       { id: "Europe/London", label: "London (GMT/BST)" },
       { id: "Europe/Paris", label: "Paris (CET/CEST)" },
-      { id: "Europe/Berlin", label: "Berlin (CET/CEST)" },
       { id: "Europe/Copenhagen", label: "Copenhagen (CET/CEST)" },
+      { id: "Europe/Rome", label: "Rome (CET/CEST)" },
       { id: "America/New_York", label: "New York (EST/EDT)" },
       { id: "America/Chicago", label: "Chicago (CST/CDT)" },
       { id: "America/Denver", label: "Denver (MST/MDT)" },
       { id: "America/Los_Angeles", label: "Los Angeles (PST/PDT)" },
+      { id: "America/Mexico_City", label: "Mexico City (CST)" },
       { id: "Asia/Tokyo", label: "Tokyo (JST)" },
       { id: "Asia/Shanghai", label: "Shanghai (CST)" },
       { id: "Asia/Kolkata", label: "New Delhi (IST)" },
       { id: "Australia/Sydney", label: "Sydney (AEST/AEDT)" },
+      { id: "Australia/Melbourne", label: "Melbourne (AEST/AEDT)" },
       { id: "Pacific/Auckland", label: "Auckland (NZST/NZDT)" }
     ];
 
@@ -235,272 +626,374 @@
     const todayBtn = document.getElementById("today-btn");
     const currentMonthYearSpan = document.getElementById("current-month-year");
     const calendarEl = document.getElementById("calendar");
+    const calendarViewport = document.getElementById("calendar-viewport");
     const resultPanel = document.getElementById("result-panel");
 
     // State
-    let localTimezone = luxon.Settings.defaultZoneName;
+    const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     let selectedFromTz = localTimezone;
     let selectedToTz = "UTC"; // Default to UTC
-    let currentWeekStart = DateTime.local().startOf("week", { useLocaleWeeks: false, weekStartsOn: 7 }); // Sunday
+    let currentWeekStart = getStartOfWeek(new Date());
 
     // Interaction State
     let isDragging = false;
     let dragStartDay = null;
     let dragStartHour = null;
     let selectedSlots = []; // Array of { day, hour }
+    const slotElements = Array.from(document.querySelectorAll(".hour-slot"));
 
-    // Initialization
+    function getStartOfWeek(d) {
+      const date = new Date(d);
+      const day = date.getDay(); // 0 is Sunday
+      date.setDate(date.getDate() - day);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    }
+
+    // Scroll viewport so standard working hours (9:00 AM - 5:00 PM) are centered
+    function centerWorkingHours() {
+      if (!calendarViewport) return;
+      // 9am is row index 9, 5pm is row index 17. Center around 1pm (hour 13)
+      const targetSlot = document.querySelector('.hour-slot[data-hour="9"]');
+      if (targetSlot) {
+        const slotTop = targetSlot.offsetTop;
+        const viewportHeight = calendarViewport.clientHeight;
+        // Center the 9am-5pm block (which spans 8 * 28px = 224px)
+        calendarViewport.scrollTop = Math.max(0, slotTop - (viewportHeight - 224) / 2);
+      } else {
+        calendarViewport.scrollTop = 9 * 28; // Fallback
+      }
+    }
+
+    // Cached Intl.DateTimeFormat instances for high performance
+    const formatterCache = new Map();
+    function getFormatter(timeZone, options) {
+      const key = `${timeZone}_${JSON.stringify(options)}`;
+      let formatter = formatterCache.get(key);
+      if (!formatter) {
+        formatter = new Intl.DateTimeFormat("en-US", { timeZone, ...options });
+        formatterCache.set(key, formatter);
+      }
+      return formatter;
+    }
+
+    const OFFSET_OPTS = {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+      hour12: false
+    };
+
+    const TIME_OPTS = {
+      hour: "numeric",
+      minute: "numeric",
+      hour12: true
+    };
+
+    const DATE_OPTS = {
+      weekday: "short",
+      month: "short",
+      day: "numeric"
+    };
+
+    const DAY_STRING_OPTS = {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric"
+    };
+
+    const DAY_HEADER_OPTS = {
+      weekday: "short",
+      month: "short",
+      day: "numeric"
+    };
+
+    // Timezone & Date helpers
+    function getTimezoneOffset(date, timeZone) {
+      const formatter = getFormatter(timeZone, OFFSET_OPTS);
+      const parts = formatter.formatToParts(date);
+      const getPart = (type) => parseInt(parts.find(p => p.type === type)?.value || "0", 10);
+      const year = getPart("year");
+      const month = getPart("month") - 1;
+      const day = getPart("day");
+      let hour = getPart("hour");
+      if (hour === 24) hour = 0;
+      const minute = getPart("minute");
+      const second = getPart("second");
+
+      const asUtc = Date.UTC(year, month, day, hour, minute, second);
+      return asUtc - date.getTime();
+    }
+
+    function createDateInZone(year, month, day, hour, timeZone) {
+      const approxUtc = Date.UTC(year, month, day, hour, 0, 0);
+      const offset = getTimezoneOffset(new Date(approxUtc), timeZone);
+      const exactUtc = approxUtc - offset;
+      const testOffset = getTimezoneOffset(new Date(exactUtc), timeZone);
+      if (testOffset !== offset) {
+        return new Date(approxUtc - testOffset);
+      }
+      return new Date(exactUtc);
+    }
+
+    function formatTime(date, timeZone) {
+      const formatter = getFormatter(timeZone, TIME_OPTS);
+      const parts = formatter.formatToParts(date);
+      const hour = parts.find(p => p.type === "hour")?.value;
+      const minute = parts.find(p => p.type === "minute")?.value;
+      const dayPeriod = (parts.find(p => p.type === "dayPeriod")?.value || "").toLowerCase();
+
+      if (minute === "00" || minute === "0") {
+        return `${hour}${dayPeriod}`;
+      }
+      return `${hour}:${minute}${dayPeriod}`;
+    }
+
+    function formatDate(date, timeZone) {
+      return getFormatter(timeZone, DATE_OPTS).format(date);
+    }
+
+    function getDayStringInZone(date, timeZone) {
+      return getFormatter(timeZone, DAY_STRING_OPTS).format(date);
+    }
+
+    // Initialization - runs synchronously on script parse
     function init() {
-      populateTimezones();
       updateHeader();
-      renderGrid();
+      updateCalendarHeaders();
 
-      // Event Listeners
+      // Timezone Dropdown Events
       fromTzSelect.addEventListener("change", (e) => {
         selectedFromTz = e.target.value === "local" ? localTimezone : e.target.value;
-        renderGrid(); // re-render grid on timezone change
+        updateCalendarHeaders();
+        clearSelection();
       });
 
       toTzSelect.addEventListener("change", (e) => {
         selectedToTz = e.target.value === "local" ? localTimezone : e.target.value;
-        updateResult(); // update result if a slot is selected
+        updateResult();
       });
 
+      // Navigation Events
       prevWeekBtn.addEventListener("click", () => {
-        currentWeekStart = currentWeekStart.minus({ weeks: 1 });
+        currentWeekStart = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() - 7);
         updateHeader();
-        renderGrid();
+        updateCalendarHeaders();
+        clearSelection();
       });
 
       nextWeekBtn.addEventListener("click", () => {
-        currentWeekStart = currentWeekStart.plus({ weeks: 1 });
+        currentWeekStart = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 7);
         updateHeader();
-        renderGrid();
+        updateCalendarHeaders();
+        clearSelection();
       });
 
       todayBtn.addEventListener("click", () => {
-        currentWeekStart = DateTime.local().startOf("week", { useLocaleWeeks: false, weekStartsOn: 7 });
+        currentWeekStart = getStartOfWeek(new Date());
         updateHeader();
-        renderGrid();
+        updateCalendarHeaders();
+        clearSelection();
       });
-    }
 
-    function populateTimezones() {
-      timezones.forEach(tz => {
-        const option1 = document.createElement("option");
-        option1.value = tz.id;
-        option1.textContent = tz.label;
-        if (tz.id === "local") option1.selected = true; // Default From to Local
-        fromTzSelect.appendChild(option1);
+      // Event Delegation for Grid Interaction
+      setupEventDelegation();
 
-        const option2 = document.createElement("option");
-        option2.value = tz.id;
-        option2.textContent = tz.label;
-        if (tz.id === "UTC") option2.selected = true; // Default To to UTC
-        toTzSelect.appendChild(option2);
-      });
+      // Center standard working hours in viewport
+      centerWorkingHours();
     }
 
     function updateHeader() {
-      const start = currentWeekStart;
-      const end = currentWeekStart.plus({ days: 6 });
+      const start = new Date(currentWeekStart);
+      const end = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
 
-      let monthYearStr = start.toFormat("MMMM yyyy");
-      if (start.month !== end.month) {
-        if (start.year !== end.year) {
-          monthYearStr = `${start.toFormat("MMM yyyy")} - ${end.toFormat("MMM yyyy")}`;
+      const startMonth = start.toLocaleDateString("en-US", { month: "short" });
+      const startFullMonth = start.toLocaleDateString("en-US", { month: "long" });
+      const startYear = start.getFullYear();
+
+      const endMonth = end.toLocaleDateString("en-US", { month: "short" });
+      const endYear = end.getFullYear();
+
+      let monthYearStr = `${startFullMonth} ${startYear}`;
+      if (start.getMonth() !== end.getMonth() || startYear !== endYear) {
+        if (startYear !== endYear) {
+          monthYearStr = `${startMonth} ${startYear} - ${endMonth} ${endYear}`;
         } else {
-          monthYearStr = `${start.toFormat("MMM")} - ${end.toFormat("MMM yyyy")}`;
+          monthYearStr = `${startMonth} - ${endMonth} ${startYear}`;
         }
       }
       currentMonthYearSpan.textContent = monthYearStr;
     }
 
-    function formatHour(hour) {
-      if (hour === 0) return "12am";
-      if (hour === 12) return "12pm";
-      return hour > 12 ? `${hour - 12}pm` : `${hour}am`;
-    }
+    // Update header labels without re-creating grid nodes
+    function updateCalendarHeaders() {
+      const tzCorner = document.getElementById("tz-corner");
+      if (tzCorner) {
+        const tzName = selectedFromTz === localTimezone ? "Local" : selectedFromTz.split('/').pop();
+        tzCorner.innerHTML = `Time<br>(${tzName})`;
+      }
 
-    function renderGrid() {
-      calendarEl.innerHTML = '';
-
-      // 1. Calendar Header
-      const headerDiv = document.createElement("div");
-      headerDiv.className = "calendar-header";
-
-      const tzCorner = document.createElement("div");
-      tzCorner.className = "header-cell";
-      tzCorner.style.fontSize = "0.8rem";
-      tzCorner.style.color = "#666";
-      tzCorner.innerHTML = `Time<br>(${selectedFromTz === localTimezone ? "Local" : selectedFromTz.split('/').pop()})`;
-      headerDiv.appendChild(tzCorner);
-
-      const days = [];
+      const dayHeaderFormatter = getFormatter("UTC", DAY_HEADER_OPTS);
       for (let i = 0; i < 7; i++) {
-        const dayDate = currentWeekStart.plus({ days: i }).setZone(selectedFromTz);
-        days.push(dayDate);
-        const dayCell = document.createElement("div");
-        dayCell.className = "header-cell";
-        dayCell.textContent = dayDate.toFormat("ccc, LLL d"); // e.g. Sun, Mar 22
-        headerDiv.appendChild(dayCell);
-      }
-      calendarEl.appendChild(headerDiv);
-
-      // 2. Calendar Body
-      const bodyDiv = document.createElement("div");
-      bodyDiv.className = "calendar-body";
-
-      // Time Column (Hours 0-23)
-      const timeCol = document.createElement("div");
-      timeCol.className = "day-column";
-      timeCol.style.borderLeft = "none";
-      for (let h = 0; h < 24; h++) {
-        const timeLabel = document.createElement("div");
-        timeLabel.className = "time-label";
-        timeLabel.style.height = "40px";
-        timeLabel.style.boxSizing = "border-box";
-        timeLabel.textContent = formatHour(h);
-        timeCol.appendChild(timeLabel);
-      }
-      bodyDiv.appendChild(timeCol);
-
-      // Day Columns
-      days.forEach((dayDate, dayIndex) => {
-        const dayCol = document.createElement("div");
-        dayCol.className = "day-column";
-
-        for (let h = 0; h < 24; h++) {
-          const slot = document.createElement("div");
-          slot.className = "hour-slot";
-          slot.dataset.day = dayIndex;
-          slot.dataset.hour = h;
-
-          slot.addEventListener("mousedown", handleSlotMouseDown);
-          slot.addEventListener("mouseenter", handleSlotMouseEnter);
-
-          dayCol.appendChild(slot);
+        const dayHeader = document.getElementById(`day-header-${i}`);
+        if (dayHeader) {
+          const dayDate = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + i);
+          dayHeader.textContent = dayHeaderFormatter.format(dayDate);
         }
-        bodyDiv.appendChild(dayCol);
-      });
-
-      calendarEl.appendChild(bodyDiv);
-
-      // Reset selections when grid re-renders
-      selectedSlots = [];
-      updateResult();
-    }
-
-    function handleSlotMouseDown(e) {
-      if (e.button !== 0) return; // Only left click
-      isDragging = true;
-      const day = parseInt(e.target.dataset.day, 10);
-      const hour = parseInt(e.target.dataset.hour, 10);
-
-      dragStartDay = day;
-      dragStartHour = hour;
-
-      selectedSlots = [{ day, hour }];
-      renderSelection();
-      updateResult();
-    }
-
-    function handleSlotMouseEnter(e) {
-      if (!isDragging) return;
-
-      const currentDay = parseInt(e.target.dataset.day, 10);
-      const currentHour = parseInt(e.target.dataset.hour, 10);
-
-      // Constraint: Must be on the same day
-      if (currentDay !== dragStartDay) return;
-
-      const start = Math.min(dragStartHour, currentHour);
-      const end = Math.max(dragStartHour, currentHour);
-
-      selectedSlots = [];
-      for (let h = start; h <= end; h++) {
-        selectedSlots.push({ day: dragStartDay, hour: h });
       }
-
-      renderSelection();
-      updateResult();
     }
 
-    // Stop dragging when mouse goes up anywhere on the document
-    document.addEventListener("mouseup", () => {
-      isDragging = false;
-    });
+    // Event Delegation: Single listener on calendarEl
+    function setupEventDelegation() {
+      calendarEl.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        const slot = e.target.closest(".hour-slot");
+        if (!slot) return;
 
-    // Also stop dragging if the mouse leaves the calendar area entirely
-    document.addEventListener("mouseleave", () => {
-      isDragging = false;
-    });
-
-    // Prevent default drag-and-drop behavior that might interfere with custom dragging
-    document.addEventListener("dragstart", (e) => {
-      e.preventDefault();
-    });
-
-    function renderSelection() {
-      document.querySelectorAll('.hour-slot').forEach(slot => {
+        isDragging = true;
         const day = parseInt(slot.dataset.day, 10);
         const hour = parseInt(slot.dataset.hour, 10);
 
-        const isSelected = selectedSlots.some(s => s.day === day && s.hour === hour);
-        if (isSelected) {
+        dragStartDay = day;
+        dragStartHour = hour;
+
+        selectedSlots = [{ day, hour }];
+        renderSelection();
+        updateResult();
+      });
+
+      calendarEl.addEventListener("mouseover", (e) => {
+        if (!isDragging) return;
+        const slot = e.target.closest(".hour-slot");
+        if (!slot) return;
+
+        const currentDay = parseInt(slot.dataset.day, 10);
+        const currentHour = parseInt(slot.dataset.hour, 10);
+
+        if (currentDay !== dragStartDay) return;
+
+        const start = Math.min(dragStartHour, currentHour);
+        const end = Math.max(dragStartHour, currentHour);
+
+        selectedSlots = [];
+        for (let h = start; h <= end; h++) {
+          selectedSlots.push({ day: dragStartDay, hour: h });
+        }
+
+        renderSelection();
+        updateResult();
+      });
+
+      document.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+
+      document.addEventListener("mouseleave", () => {
+        isDragging = false;
+      });
+
+      document.addEventListener("dragstart", (e) => {
+        e.preventDefault();
+      });
+    }
+
+    function clearSelection() {
+      selectedSlots = [];
+      renderSelection();
+      updateResult();
+    }
+
+    function renderSelection() {
+      const selectedMap = new Set(selectedSlots.map(s => `${s.day}_${s.hour}`));
+      for (let i = 0; i < slotElements.length; i++) {
+        const slot = slotElements[i];
+        const key = `${slot.dataset.day}_${slot.dataset.hour}`;
+        if (selectedMap.has(key)) {
           slot.classList.add('selected');
         } else {
           slot.classList.remove('selected');
         }
-      });
+      }
     }
 
     function updateResult() {
       if (selectedSlots.length === 0) {
-        resultPanel.innerHTML = "Select a time slot to see details.";
+        resultPanel.innerHTML = '<div class="result-empty">Select a time slot to see details.</div>';
         return;
       }
 
-      // We know all selected slots are on the same day due to constraints
       const dayIndex = selectedSlots[0].day;
-
-      // Find min and max hour
       const hours = selectedSlots.map(s => s.hour);
       const startHour = Math.min(...hours);
-      const endHour = Math.max(...hours) + 1; // +1 because a slot represents 1 hour duration
-
-      const dayDateFrom = currentWeekStart.plus({ days: dayIndex }).setZone(selectedFromTz).set({ hour: 0, minute: 0, second: 0, millisecond: 0 });
-
+      const endHour = Math.max(...hours) + 1;
       const durationHours = endHour - startHour;
-      const startTimeFrom = dayDateFrom.set({ hour: startHour });
-      const endTimeFrom = startTimeFrom.plus({ hours: durationHours });
 
-      const startTimeTo = startTimeFrom.setZone(selectedToTz);
-      const endTimeTo = endTimeFrom.setZone(selectedToTz);
+      const baseDate = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + dayIndex);
+      const year = baseDate.getFullYear();
+      const month = baseDate.getMonth();
+      const day = baseDate.getDate();
 
-      const formatTime = (dt) => dt.minute === 0 ? dt.toFormat("ha").toLowerCase() : dt.toFormat("h:mma").toLowerCase();
-      const formatDate = (dt) => dt.toFormat("cccc MMMM d");
+      const startTime = createDateInZone(year, month, day, startHour, selectedFromTz);
+      const endTime = new Date(startTime.getTime() + durationHours * 3600 * 1000);
 
-      const fromLabel = selectedFromTz === localTimezone ? "Your Time" : "Time";
       const fromTzName = timezones.find(t => t.id === selectedFromTz)?.label || selectedFromTz.split('/').pop();
       const toTzName = timezones.find(t => t.id === selectedToTz)?.label || selectedToTz.split('/').pop();
 
-      const fromString = `${fromLabel} (${fromTzName}): <strong>${formatDate(startTimeFrom)} from ${formatTime(startTimeFrom)} to ${formatTime(endTimeFrom)}</strong>`;
+      const fromDateStr = formatDate(startTime, selectedFromTz);
+      const fromStartTimeStr = formatTime(startTime, selectedFromTz);
+      const fromEndTimeStr = formatTime(endTime, selectedFromTz);
 
-      let toString = `Their Time (${toTzName}): <strong>`;
-      // Check if "to" time spans a different day
-      if (startTimeTo.hasSame(endTimeTo, 'day') && startTimeTo.hasSame(startTimeFrom, 'day')) {
-        toString += `${formatTime(startTimeTo)} to ${formatTime(endTimeTo)}</strong>`;
-      } else {
-        // If the day is different in the destination timezone, include the date
-        toString += `${formatDate(startTimeTo)} from ${formatTime(startTimeTo)} to ${formatTime(endTimeTo)}</strong>`;
-      }
+      const toDateStr = formatDate(startTime, selectedToTz);
+      const toStartTimeStr = formatTime(startTime, selectedToTz);
+      const toEndTimeStr = formatTime(endTime, selectedToTz);
 
-      resultPanel.innerHTML = `<p>${fromString}</p><p>${toString}</p>`;
+      resultPanel.innerHTML = `
+        <div class="result-row">
+          <div class="result-label">From (${fromTzName}):</div>
+          <div class="result-date">${fromDateStr}</div>
+          <div class="result-time">${fromStartTimeStr} &ndash; ${fromEndTimeStr}</div>
+        </div>
+        <div class="result-row">
+          <div class="result-label">To (${toTzName}):</div>
+          <div class="result-date">${toDateStr}</div>
+          <div class="result-time">${toStartTimeStr} &ndash; ${toEndTimeStr}</div>
+        </div>
+      `;
     }
 
-    document.addEventListener("DOMContentLoaded", init);
+    // Performance profiling instrumentation
+    function logPerformanceSummary() {
+      setTimeout(() => {
+        const [nav] = performance.getEntriesByType("navigation") || [];
+        const paints = performance.getEntriesByType("paint") || [];
+        const fp = paints.find(p => p.name === 'first-paint')?.startTime || 0;
+        const fcp = paints.find(p => p.name === 'first-contentful-paint')?.startTime || 0;
 
+        if (nav) {
+          const metrics = {
+            "fetchStart": nav.fetchStart.toFixed(1) + " ms",
+            "requestStart": nav.requestStart.toFixed(1) + " ms",
+            "responseStart": nav.responseStart.toFixed(1) + " ms",
+            "responseEnd": nav.responseEnd.toFixed(1) + " ms",
+            "domInteractive": nav.domInteractive.toFixed(1) + " ms",
+            "domContentLoadedEventEnd": nav.domContentLoadedEventEnd.toFixed(1) + " ms",
+            "loadEventEnd": nav.loadEventEnd.toFixed(1) + " ms",
+            "First Contentful Paint (FCP)": fcp ? fcp.toFixed(1) + " ms" : "N/A"
+          };
+          console.group("⏱️ Raw Navigation Timing Breakdown");
+          console.table(metrics);
+          console.log("Full Navigation Object:", nav);
+          console.groupEnd();
+        }
+      }, 100);
+    }
+
+    // Execute immediately on script parse
+    init();
+    logPerformanceSummary();
   </script>
 </body>
 </html>
