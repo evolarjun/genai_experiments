@@ -75,402 +75,260 @@ sub teardown {
 # Tests
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-subtest 'column numbers row appears' => sub {
+subtest 'standard interactive workflow' => sub {
     launch();
+
+    # 1. Initial UI rendering
     my $screen = capture();
-    # Column number row has right-aligned numbers; look for digits separated by spaces
     like($screen, qr/\s1\s/, 'column number 1 visible on screen');
     like($screen, qr/\s2\s/, 'column number 2 visible on screen');
     like($screen, qr/\s3\s/, 'column number 3 visible on screen');
-    teardown();
-};
-
-subtest 'header row appears' => sub {
-    launch();
-    my $screen = capture();
     like($screen, qr/name/, 'header "name" is visible');
     like($screen, qr/age/,  'header "age" is visible');
     like($screen, qr/score/,'header "score" is visible');
-    teardown();
-};
-
-subtest 'data rows appear' => sub {
-    launch();
-    my $screen = capture();
     like($screen, qr/Alice/, 'first data row visible');
     like($screen, qr/Bob/,   'second data row visible');
-    teardown();
-};
-
-subtest 'status bar shows filename and row info' => sub {
-    launch();
-    my $screen = capture();
     like($screen, qr/t2v\/t\//, 'status bar shows path containing t2v/t/');
     like($screen, qr/Rows\s+\d+-\d+\s+of\s+\d+/, 'status bar shows row range');
     like($screen, qr/Col offset:\s*0/, 'status bar shows horizontal offset = 0');
-    teardown();
-};
 
-subtest 'vertical scroll --- down one row' => sub {
-    # Use a small terminal so only a few rows are visible at once
-    launch(height => 7);  # 7 rows: col nums + header + 4 data + status
-    my $before = capture();
-    like($before, qr/Alice/, 'Alice visible before scroll');
+    # 2. 1 and 0 keys toggle column numbers
+    send_keys('1');
+    my $screen_off = capture();
+    unlike($screen_off, qr/1\s+2\s+3/, 'column numbers hidden after pressing 1');
 
-    send_keys('Down');  # scroll one row down
+    send_keys('0');
+    my $screen0 = capture();
+    like($screen0, qr/0\s+1\s+2/, '0-based column numbers (0 1 2) shown after pressing 0');
 
-    my $after = capture();
-    unlike($after, qr/\bAlice\b/, 'Alice no longer in top data row after scroll');
-    like($after,   qr/Bob/,       'Bob still visible after one scroll');
-    teardown();
-};
+    send_keys('0');
+    my $screen_off2 = capture();
+    unlike($screen_off2, qr/0\s+1\s+2/, 'column numbers hidden after pressing 0 again');
 
-subtest 'vertical scroll --- Home returns to top' => sub {
-    launch(height => 7);
-    send_keys('Down', 'Down', 'Down');
-    my $mid = capture();
-    unlike($mid, qr/\bAlice\b/, 'Alice not visible mid-scroll');
+    send_keys('1');
+    my $screen1_back = capture();
+    like($screen1_back, qr/1\s+2\s+3/, '1-based column numbers restored after pressing 1');
 
-    send_keys('Home');
-    my $top = capture();
-    like($top, qr/Alice/, 'Alice visible again after Home');
-    teardown();
-};
-
-subtest 'vertical scroll --- End jumps to last row' => sub {
-    launch();
-    send_keys('End');
-    my $screen = capture();
-    like($screen, qr/Jack/, 'Jack (last row) visible after End');
-    teardown();
-};
-
-subtest 'vertical scroll --- g jumps to first row' => sub {
-    launch(height => 7);
-    send_keys('Down', 'Down', 'Down');
-    my $mid = capture();
-    unlike($mid, qr/\bAlice\b/, 'Alice not visible mid-scroll');
-
-    send_keys('g');
-    my $top = capture();
-    like($top, qr/Alice/, 'Alice visible again after g');
-    teardown();
-};
-
-subtest 'vertical scroll --- G jumps to last row' => sub {
-    launch();
-    send_keys('G');
-    my $screen = capture();
-    like($screen, qr/Jack/, 'Jack (last row) visible after G');
-    teardown();
-};
-
-subtest 'horizontal scroll --- right shifts content' => sub {
-    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80);
-    my $before = capture();
-    like($before, qr/col1/, 'col1 header visible before scroll');
-
-    send_keys('Right');  # shift 10 chars right
-
-    my $after = capture();
-    like($after, qr/Col offset:\s*10/, 'status bar shows offset 10 after one Right');
-    teardown();
-};
-
-subtest 'horizontal scroll --- Left at offset 0 stays at 0' => sub {
-    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80);
-    send_keys('Left');
-    my $screen = capture();
-    like($screen, qr/Col offset:\s*0/, 'offset stays 0 at left boundary');
-    teardown();
-};
-
-subtest 'help overlay appears on ?' => sub {
-    launch();
-    send_keys('?');
-    my $screen = capture();
-    like($screen, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
-    like($screen, qr/Quit/,        'help overlay shows Quit binding');
-    teardown();
-};
-
-subtest 'help overlay appears on h' => sub {
-    launch();
-    send_keys('h');
-    my $screen = capture();
-    like($screen, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
-    like($screen, qr/Quit/,        'help overlay shows Quit binding');
-    like($screen, qr/<BS>/,        'help overlay shows <BS> binding');
-    like($screen, qr/&/,           'help overlay shows & binding');
-    teardown();
-};
-
-subtest 'help overlay dismissed by any key' => sub {
-    launch();
-    send_keys('?');
-    send_keys('q');
-    # After pressing q in help mode, it should dismiss and then redraw
-    # (q is the dismiss key, not quit, because show_help is true)
-    # Actually in our implementation, any key dismisses --- including q
-    # But q in help mode calls dismiss+redraw, not quit.
-    # Wait and check that the session still exists (not exited).
-    select(undef, undef, undef, 0.2);
-    my $alive = system("$tmux has-session -t $SESSION 2>/dev/null");
-    is($alive, 0, 'session still alive after dismissing help with q');
-    teardown();
-};
-
-subtest 'q quits the viewer' => sub {
-    launch();
-    send_keys('q');
-    select(undef, undef, undef, 0.3);
-    my $alive = system("$tmux has-session -t $SESSION 2>/dev/null");
-    isnt($alive, 0, 'session no longer exists after q');
-    teardown();
-};
-
-subtest 'pipe input (cat | t2v)' => sub {
-    launch(cmd => "cat $fixtures/basic.tsv | $t2v");
-    my $screen = capture();
-    like($screen, qr/name/,   'header visible from piped input');
-    like($screen, qr/Alice/,  'data visible from piped input');
-    like($screen, qr/stdin/i, 'status bar shows stdin for piped input');
-    teardown();
-};
-
-subtest 'custom delimiter -d' => sub {
-    launch(cmd => "$t2v -d , $fixtures/csv.csv");
-    my $screen = capture();
-    like($screen, qr/product/,  'CSV header "product" visible');
-    like($screen, qr/price/,    'CSV header "price" visible');
-    like($screen, qr/Widget/,   'CSV data visible');
-    teardown();
-};
-
-subtest 'page down scrolls by one screenful' => sub {
-    # Use height=8 -> 8-3=5 visible data rows, max_v = 10-5 = 5
-    # After PgDn, v_offset jumps by 5: Alice (row 0) scrolls off
-    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8);
-
-    my $before = capture();
-    like($before, qr/Alice/, 'Alice visible before PgDn');
-
-    send_keys('NPage');  # tmux key name for Page Down (sends \e[6~)
-    select(undef, undef, undef, 0.2);
-
-    my $after = capture();
-    unlike($after, qr/\bAlice\b/, 'Alice scrolled off after PgDn');
-    teardown();
-};
-
-subtest 'space bar scrolls by one screenful (PgDn synonym)' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8);
-
-    my $before = capture();
-    like($before, qr/Alice/, 'Alice visible before Space');
-
-    send_keys('Space');
-    select(undef, undef, undef, 0.2);
-
-    my $after = capture();
-    unlike($after, qr/\bAlice\b/, 'Alice scrolled off after Space');
-    teardown();
-};
-
-subtest 'backspace key scrolls up by one screenful (PgUp synonym)' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8);
-
-    # Scroll down first
-    send_keys('Space');
-    select(undef, undef, undef, 0.2);
-    my $down = capture();
-    unlike($down, qr/\bAlice\b/, 'Alice scrolled off after Space');
-
-    # Press Backspace to scroll back up
-    send_keys('BSpace');
-    select(undef, undef, undef, 0.2);
-    my $up = capture();
-    like($up, qr/\bAlice\b/, 'Alice visible again after Backspace');
-    teardown();
-};
-
-subtest '-N flag shows line numbers' => sub {
-    launch(cmd => "$t2v -N $fixtures/basic.tsv");
-    my $screen = capture();
-    like($screen, qr/^\s*1\s+Alice/m, 'line number 1 visible next to Alice');
-    like($screen, qr/^\s*10\s+Jack/m, 'line number 10 visible next to Jack');
-    teardown();
-};
-
-subtest '-n flag is invalid when -N is required' => sub {
-    my $out = `$t2v -n $fixtures/basic.tsv 2>&1`;
-    like($out, qr/Unknown option: n|Usage/i, '-n flag rejected when -N is required');
-};
-
-subtest '-N flag freezes line numbers column during horizontal scroll' => sub {
-    launch(cmd => "$t2v -N $fixtures/wide.tsv", width => 80);
-    send_keys('Right');
-    my $screen = capture();
-    like($screen, qr/^\s*1\s+/m, 'line number 1 remains frozen on left after horizontal scroll');
-    like($screen, qr/Col offset:\s*10/, 'horizontal scroll offset updated');
-    teardown();
-};
-
-subtest 'N key toggles line numbers' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
-    my $before = capture();
-    unlike($before, qr/^\s*1\s+Alice/m, 'line numbers not shown by default');
-
+    # 3. N key toggles line numbers
     send_keys('N');
     select(undef, undef, undef, 0.2);
-
-    my $prompt = capture();
-    like($prompt, qr/Constantly display line numbers/, 'prompt message shown after pressing N');
-    unlike($prompt, qr/^\s*1\s+Alice/m, 'line numbers not shown until Enter is pressed');
+    my $prompt_n = capture();
+    like($prompt_n, qr/Constantly display line numbers/, 'prompt message shown after pressing N');
+    unlike($prompt_n, qr/^\s*1\s+Alice/m, 'line numbers not shown until Enter is pressed');
 
     send_keys('Enter');
     select(undef, undef, undef, 0.2);
-
-    my $after = capture();
-    like($after, qr/^\s*1\s+Alice/m, 'line numbers shown after pressing Enter');
+    my $after_n = capture();
+    like($after_n, qr/^\s*1\s+Alice/m, 'line numbers shown after pressing Enter');
 
     send_keys('N');
     select(undef, undef, undef, 0.2);
-
     my $prompt_off = capture();
     like($prompt_off, qr/Don't use line numbers/, 'prompt message shown after pressing N when numbers on');
 
     send_keys('Enter');
     select(undef, undef, undef, 0.2);
+    my $off_n = capture();
+    unlike($off_n, qr/^\s*1\s+Alice/m, 'line numbers hidden after pressing Enter');
 
-    my $off = capture();
-    unlike($off, qr/^\s*1\s+Alice/m, 'line numbers hidden after pressing Enter');
-    teardown();
-};
-
-subtest 'pressing Esc after - cancels prompt and returns to normal operation' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
+    # 4. Pressing Esc after - cancels prompt
     send_keys('-');
     select(undef, undef, undef, 0.2);
-
-    my $prompt = capture();
-    like($prompt, qr/^\s*-\s*$/m, 'dash prompt active on status bar');
+    my $prompt_dash = capture();
+    like($prompt_dash, qr/^\s*-\s*$/m, 'dash prompt active on status bar');
 
     send_keys('Escape');
     select(undef, undef, undef, 0.2);
+    my $normal_esc = capture();
+    like($normal_esc, qr/Rows \d+-\d+ of \d+/, 'returns to normal operation status bar after Esc');
+    unlike($normal_esc, qr/^\s*-\s*$/m, 'dash prompt cleared after Esc');
 
-    my $normal = capture();
-    like($normal, qr/Rows \d+-\d+ of \d+/, 'returns to normal operation status bar after Esc');
-    unlike($normal, qr/^\s*-\s*$/m, 'dash prompt cleared after Esc');
-    teardown();
-};
-
-
-subtest '1 and 0 keys toggle column numbers' => sub {
-    launch();
-    my $screen1 = capture();
-    like($screen1, qr/1\s+2\s+3/, '1-based column numbers shown by default');
-
-    # Press 1 to toggle 1-based column numbers off
-    send_keys('1');
-    my $screen_off = capture();
-    unlike($screen_off, qr/1\s+2\s+3/, 'column numbers hidden after pressing 1');
-
-    # Press 0 to turn on 0-based column numbers
-    send_keys('0');
-    my $screen0 = capture();
-    like($screen0, qr/0\s+1\s+2/, '0-based column numbers (0 1 2) shown after pressing 0');
-
-    # Press 0 again to toggle 0-based column numbers off
-    send_keys('0');
-    my $screen_off2 = capture();
-    unlike($screen_off2, qr/0\s+1\s+2/, 'column numbers hidden after pressing 0 again');
-
-    # Press 1 to turn back on 1-based column numbers
-    send_keys('1');
-    my $screen1_back = capture();
-    like($screen1_back, qr/1\s+2\s+3/, '1-based column numbers restored after pressing 1');
-    teardown();
-};
-
-subtest 'search prompt and regex matching' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
+    # 5. Search prompt and regex matching
     send_keys('/');
     select(undef, undef, undef, 0.2);
-
-    my $prompt = capture();
-    like($prompt, qr/\//, 'search prompt starts with /');
+    my $prompt_srch = capture();
+    like($prompt_srch, qr/\//, 'search prompt starts with /');
 
     send_keys('A', 'l', 'i', 'c', 'e', 'Enter');
     select(undef, undef, undef, 0.2);
+    my $screen_srch = capture();
+    like($screen_srch, qr/Alice/, 'Alice found and visible on screen');
 
-    my $screen = capture();
-    like($screen, qr/Alice/, 'Alice found and visible on screen');
-
-    teardown();
-};
-
-subtest 'search logic --- n and p navigation with wrap around' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
-
-    # Search for "Alice"
-    send_keys('/', 'A', 'l', 'i', 'c', 'e', 'Enter');
-    select(undef, undef, undef, 0.2);
-
-    # Press n to jump (wraps around to Alice since Alice is the only match)
+    # 6. Search logic: n and p navigation with wrap around
     send_keys('n');
     select(undef, undef, undef, 0.2);
-
     my $wrap = capture();
     like($wrap, qr/wrapped/i, 'wrap message shown when wrapping search');
 
-    # Press p to jump back
     send_keys('p');
     select(undef, undef, undef, 0.2);
+    my $screen_p = capture();
+    like($screen_p, qr/Alice/, 'navigated back to Alice');
 
-    my $screen = capture();
-    like($screen, qr/Alice/, 'navigated back to Alice');
-
-    teardown();
-};
-
-subtest 'invalid regex handling' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
+    # 7. Invalid regex handling
     send_keys('/', '[', 'Enter');
     select(undef, undef, undef, 0.2);
+    my $screen_inv = capture();
+    like($screen_inv, qr/Invalid regex/i, 'status bar shows invalid regex error message');
 
-    my $screen = capture();
-    like($screen, qr/Invalid regex/i, 'status bar shows invalid regex error message');
-
-    teardown();
-};
-
-subtest '& option filters rows by regex and empty expression clears filter' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
-
-    # Press & to prompt for filter regex
+    # 8. Filter option & and clear filter
     send_keys('&');
     select(undef, undef, undef, 0.2);
+    my $prompt_fltr = capture();
+    like($prompt_fltr, qr/&/, 'filter prompt starts with &');
 
-    my $prompt = capture();
-    like($prompt, qr/&/, 'filter prompt starts with &');
-
-    # Type "Alice" and press Enter
     send_keys('A', 'l', 'i', 'c', 'e', 'Enter');
     select(undef, undef, undef, 0.2);
-
     my $filtered = capture();
     like($filtered, qr/Alice/, 'Alice is visible when filtered');
     unlike($filtered, qr/Bob/, 'Bob is hidden when filtered');
 
-    # Press & and Enter with empty expression to clear filter
     send_keys('&', 'Enter');
     select(undef, undef, undef, 0.2);
-
     my $all = capture();
     like($all, qr/Alice/, 'Alice visible after clearing filter');
     like($all, qr/Bob/,   'Bob visible again after clearing filter');
 
+    # 9. Help overlay
+    send_keys('?');
+    my $screen_help1 = capture();
+    like($screen_help1, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
+    like($screen_help1, qr/Quit/,        'help overlay shows Quit binding');
+
+    send_keys('q');
+    select(undef, undef, undef, 0.2);
+    my $alive_help = system("$tmux has-session -t $SESSION 2>/dev/null");
+    is($alive_help, 0, 'session still alive after dismissing help with q');
+
+    send_keys('h');
+    my $screen_help2 = capture();
+    like($screen_help2, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
+    like($screen_help2, qr/Quit/,        'help overlay shows Quit binding');
+    like($screen_help2, qr/<BS>/,        'help overlay shows <BS> binding');
+    like($screen_help2, qr/&/,           'help overlay shows & binding');
+
+    send_keys('Escape');
+    select(undef, undef, undef, 0.2);
+
+    # 10. Vertical navigation (End, Home, G, g)
+    send_keys('End');
+    my $screen_end = capture();
+    like($screen_end, qr/Jack/, 'Jack (last row) visible after End');
+
+    send_keys('Home');
+    my $screen_home = capture();
+    like($screen_home, qr/Alice/, 'Alice visible again after Home');
+
+    send_keys('G');
+    my $screen_G = capture();
+    like($screen_G, qr/Jack/, 'Jack (last row) visible after G');
+
+    send_keys('g');
+    my $screen_g = capture();
+    like($screen_g, qr/Alice/, 'Alice visible again after g');
+
+    # 11. Quit viewer
+    send_keys('q');
+    select(undef, undef, undef, 0.3);
+    my $alive_q = system("$tmux has-session -t $SESSION 2>/dev/null");
+    isnt($alive_q, 0, 'session no longer exists after q');
+
+    teardown();
+};
+
+subtest 'small height vertical scrolling' => sub {
+    launch(height => 8);
+
+    my $before = capture();
+    like($before, qr/Alice/, 'Alice visible before scroll');
+
+    send_keys('Down');
+    my $after_down = capture();
+    unlike($after_down, qr/\bAlice\b/, 'Alice no longer in top data row after scroll');
+    like($after_down,   qr/Bob/,       'Bob still visible after one scroll');
+
+    send_keys('Home');
+    my $top = capture();
+    like($top, qr/Alice/, 'Alice visible again after Home');
+
+    send_keys('Down', 'Down', 'Down');
+    my $mid = capture();
+    unlike($mid, qr/\bAlice\b/, 'Alice not visible mid-scroll');
+
+    send_keys('g');
+    my $top_g = capture();
+    like($top_g, qr/Alice/, 'Alice visible again after g');
+
+    # Page down
+    send_keys('g');
+    send_keys('NPage');
+    select(undef, undef, undef, 0.2);
+    my $after_pgdn = capture();
+    unlike($after_pgdn, qr/\bAlice\b/, 'Alice scrolled off after PgDn');
+
+    # Space bar
+    send_keys('g');
+    send_keys('Space');
+    select(undef, undef, undef, 0.2);
+    my $after_space = capture();
+    unlike($after_space, qr/\bAlice\b/, 'Alice scrolled off after Space');
+
+    # Backspace (PgUp synonym)
+    send_keys('BSpace');
+    select(undef, undef, undef, 0.2);
+    my $after_bspace = capture();
+    like($after_bspace, qr/\bAlice\b/, 'Alice visible again after Backspace');
+
+    teardown();
+};
+
+subtest 'horizontal scrolling and line numbers freeze' => sub {
+    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80);
+    my $before = capture();
+    like($before, qr/col1/, 'col1 header visible before scroll');
+
+    send_keys('Right');
+    my $after_r = capture();
+    like($after_r, qr/Col offset:\s*10/, 'status bar shows offset 10 after one Right');
+
+    send_keys('Left');
+    send_keys('Left');
+    my $after_l = capture();
+    like($after_l, qr/Col offset:\s*0/, 'offset stays 0 at left boundary');
+    teardown();
+
+    launch(cmd => "$t2v -N $fixtures/wide.tsv", width => 80);
+    send_keys('Right');
+    my $screen_freeze = capture();
+    like($screen_freeze, qr/^\s*1\s+/m, 'line number 1 remains frozen on left after horizontal scroll');
+    like($screen_freeze, qr/Col offset:\s*10/, 'horizontal scroll offset updated');
+    teardown();
+};
+
+subtest 'CLI options and flags' => sub {
+    launch(cmd => "$t2v -N $fixtures/basic.tsv");
+    my $screen_n = capture();
+    like($screen_n, qr/^\s*1\s+Alice/m, 'line number 1 visible next to Alice');
+    like($screen_n, qr/^\s*10\s+Jack/m, 'line number 10 visible next to Jack');
+    teardown();
+
+    my $out = `$t2v -n $fixtures/basic.tsv 2>&1`;
+    like($out, qr/Unknown option: n|Usage/i, '-n flag rejected when -N is required');
+
+    launch(cmd => "$t2v -d , $fixtures/csv.csv");
+    my $screen_csv = capture();
+    like($screen_csv, qr/product/,  'CSV header "product" visible');
+    like($screen_csv, qr/price/,    'CSV header "price" visible');
+    like($screen_csv, qr/Widget/,   'CSV data visible');
+    teardown();
+};
+
+subtest 'piped input' => sub {
+    launch(cmd => "cat $fixtures/basic.tsv | $t2v");
+    my $screen = capture();
+    like($screen, qr/name/,   'header visible from piped input');
+    like($screen, qr/Alice/,  'data visible from piped input');
+    like($screen, qr/stdin/i, 'status bar shows stdin for piped input');
     teardown();
 };
 
