@@ -28,17 +28,26 @@ sub launch {
     my $cmd     = $opts{cmd}    // "$t2v $fixtures/basic.tsv";
     my $width   = $opts{width}  // 80;
     my $height  = $opts{height} // 24;
+    my $reuse   = $opts{reuse}  // 0;
 
     $current_cmd    = $cmd;
     $current_width  = $width;
     $current_height = $height;
     @current_keys   = ();
 
+    if ($reuse && system("$tmux has-session -t $SESSION 2>/dev/null") == 0) {
+        return $SESSION;
+    }
+
     # Kill any stale session with the same name.
     system($tmux, 'kill-session', '-t', $SESSION) if system("$tmux has-session -t $SESSION 2>/dev/null") == 0;
 
     system($tmux, 'new-session', '-d', '-s', $SESSION, '-x', $width, '-y', $height, $cmd);
-    select(undef, undef, undef, 0.4);  # let t2v start up
+    for (1..20) {
+        select(undef, undef, undef, 0.01);
+        my $raw = `$tmux capture-pane -t $SESSION -p 2>/dev/null`;
+        last if $raw =~ /\S/;
+    }
     return $SESSION;
 }
 
@@ -53,14 +62,14 @@ sub capture {
 sub send_keys {
     my (@keys) = @_;
     push @current_keys, @keys;
-    for my $key (@keys) {
-        system($tmux, 'send-keys', '-t', $SESSION, $key, '');
-        select(undef, undef, undef, 0.1);
-    }
+    return unless @keys;
+    system($tmux, 'send-keys', '-t', $SESSION, @keys);
+    select(undef, undef, undef, 0.02);
 }
 
 # Kill the session and print diagnostics if the subtest failed.
 sub teardown {
+    my (%opts) = @_;
     my $tb = Test::Builder->new;
     if (!$tb->is_passing && $current_cmd) {
         my $msg = "\n  Failed command line:\n    $current_cmd";
@@ -68,7 +77,9 @@ sub teardown {
         $msg .= "\n  Keys pressed in test: " . join(" -> ", @current_keys) if @current_keys;
         diag($msg . "\n");
     }
-    system("$tmux kill-session -t $SESSION 2>/dev/null");
+    unless ($opts{keep_alive}) {
+        system("$tmux kill-session -t $SESSION 2>/dev/null");
+    }
 }
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -79,28 +90,28 @@ subtest 'column numbers hidden by default' => sub {
     launch();
     my $screen = capture();
     unlike($screen, qr/1\s+2\s+3/, 'column numbers not visible on initial render');
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'header row appears' => sub {
-    launch();
+    launch(reuse => 1);
     my $screen = capture();
     like($screen, qr/name/, 'header "name" is visible');
     like($screen, qr/age/,  'header "age" is visible');
     like($screen, qr/score/,'header "score" is visible');
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'data rows appear' => sub {
-    launch();
+    launch(reuse => 1);
     my $screen = capture();
     like($screen, qr/Alice/, 'first data row visible');
     like($screen, qr/Bob/,   'second data row visible');
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'status bar shows filename and row info' => sub {
-    launch();
+    launch(reuse => 1);
     my $screen = capture();
     like($screen, qr/t2v\/t\//, 'status bar shows path containing t2v/t/');
     like($screen, qr/Rows\s+\d+-\d+\s+of\s+\d+/, 'status bar shows row range');
@@ -118,11 +129,12 @@ subtest 'vertical scroll --- down one row' => sub {
     my $after = capture();
     unlike($after, qr/\bAlice\b/, 'Alice no longer in top data row after scroll');
     like($after,   qr/Bob/,       'Bob still visible after one scroll');
-    teardown();
+    send_keys('Home');
+    teardown(keep_alive => 1);
 };
 
 subtest 'vertical scroll --- j and k keys' => sub {
-    launch(height => 7);
+    launch(height => 7, reuse => 1);
     my $before = capture();
     like($before, qr/Alice/, 'Alice visible before scroll');
 
@@ -136,11 +148,11 @@ subtest 'vertical scroll --- j and k keys' => sub {
     send_keys('k');
     my $after_k = capture();
     like($after_k, qr/Alice/, 'Alice visible again after k');
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'vertical scroll --- Home returns to top' => sub {
-    launch(height => 7);
+    launch(height => 7, reuse => 1);
     send_keys('Down', 'Down', 'Down');
     my $mid = capture();
     unlike($mid, qr/\bAlice\b/, 'Alice not visible mid-scroll');
@@ -148,7 +160,7 @@ subtest 'vertical scroll --- Home returns to top' => sub {
     send_keys('Home');
     my $top = capture();
     like($top, qr/Alice/, 'Alice visible again after Home');
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'vertical scroll --- End jumps to last row' => sub {
@@ -160,7 +172,7 @@ subtest 'vertical scroll --- End jumps to last row' => sub {
 };
 
 subtest 'vertical scroll --- g jumps to first row' => sub {
-    launch(height => 7);
+    launch(height => 7, reuse => 1);
     send_keys('Down', 'Down', 'Down');
     my $mid = capture();
     unlike($mid, qr/\bAlice\b/, 'Alice not visible mid-scroll');
@@ -205,27 +217,29 @@ subtest 'help overlay appears on ?' => sub {
     my $screen = capture();
     like($screen, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
     like($screen, qr/Quit/,        'help overlay shows Quit binding');
-    teardown();
+    send_keys('Escape');
+    teardown(keep_alive => 1);
 };
 
 subtest 'help overlay appears on h' => sub {
-    launch();
+    launch(reuse => 1);
     send_keys('h');
     my $screen = capture();
     like($screen, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
     like($screen, qr/Quit/,        'help overlay shows Quit binding');
     like($screen, qr/<BS>/,        'help overlay shows <BS> binding');
     like($screen, qr/&/,           'help overlay shows & binding');
-    teardown();
+    send_keys('Escape');
+    teardown(keep_alive => 1);
 };
 
 subtest 'help overlay dismissed by any key' => sub {
-    launch();
+    launch(reuse => 1);
     send_keys('?');
-    send_keys('q');
-    select(undef, undef, undef, 0.2);
+    send_keys('x');
+    select(undef, undef, undef, 0.05);
     my $alive = system("$tmux has-session -t $SESSION 2>/dev/null");
-    is($alive, 0, 'session still alive after dismissing help with q');
+    is($alive, 0, 'session still alive after dismissing help with x');
     teardown();
 };
 
@@ -263,37 +277,39 @@ subtest 'page down scrolls by one screenful' => sub {
     like($before, qr/Alice/, 'Alice visible before PgDn');
 
     send_keys('NPage');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $after = capture();
     unlike($after, qr/\bAlice\b/, 'Alice scrolled off after PgDn');
-    teardown();
+    send_keys('Home');
+    teardown(keep_alive => 1);
 };
 
 subtest 'space bar scrolls by one screenful (PgDn synonym)' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8);
+    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8, reuse => 1);
 
     my $before = capture();
     like($before, qr/Alice/, 'Alice visible before Space');
 
     send_keys('Space');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $after = capture();
     unlike($after, qr/\bAlice\b/, 'Alice scrolled off after Space');
-    teardown();
+    send_keys('Home');
+    teardown(keep_alive => 1);
 };
 
 subtest 'backspace key scrolls up by one screenful (PgUp synonym)' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8);
+    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8, reuse => 1);
 
     send_keys('Space');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
     my $down = capture();
     unlike($down, qr/\bAlice\b/, 'Alice scrolled off after Space');
 
     send_keys('BSpace');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
     my $up = capture();
     like($up, qr/\bAlice\b/, 'Alice visible again after Backspace');
     teardown();
@@ -405,70 +421,67 @@ subtest '1 and 0 keys toggle column numbers' => sub {
 subtest 'search prompt and regex matching' => sub {
     launch(cmd => "$t2v $fixtures/basic.tsv");
     send_keys('/');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $prompt = capture();
     like($prompt, qr/\//, 'search prompt starts with /');
 
     send_keys('A', 'l', 'i', 'c', 'e', 'Enter');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $screen = capture();
     like($screen, qr/Alice/, 'Alice found and visible on screen');
 
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'search logic --- n and p navigation with wrap around' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
-
-    send_keys('/', 'A', 'l', 'i', 'c', 'e', 'Enter');
-    select(undef, undef, undef, 0.2);
+    launch(cmd => "$t2v $fixtures/basic.tsv", reuse => 1);
 
     send_keys('n');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $wrap = capture();
     like($wrap, qr/wrapped/i, 'wrap message shown when wrapping search');
 
     send_keys('p');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $screen = capture();
     like($screen, qr/Alice/, 'navigated back to Alice');
 
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'invalid regex handling' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
+    launch(cmd => "$t2v $fixtures/basic.tsv", reuse => 1);
     send_keys('/', '[', 'Enter');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $screen = capture();
     like($screen, qr/Invalid regex/i, 'status bar shows invalid regex error message');
 
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest '& option filters rows by regex and empty expression clears filter' => sub {
-    launch(cmd => "$t2v $fixtures/basic.tsv");
+    launch(cmd => "$t2v $fixtures/basic.tsv", reuse => 1);
 
     send_keys('&');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $prompt = capture();
     like($prompt, qr/&/, 'filter prompt starts with &');
 
     send_keys('A', 'l', 'i', 'c', 'e', 'Enter');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $filtered = capture();
     like($filtered, qr/Alice/, 'Alice is visible when filtered');
     unlike($filtered, qr/Bob/, 'Bob is hidden when filtered');
 
     send_keys('&', 'Enter');
-    select(undef, undef, undef, 0.2);
+    select(undef, undef, undef, 0.05);
 
     my $all = capture();
     like($all, qr/Alice/, 'Alice visible after clearing filter');
@@ -490,15 +503,12 @@ subtest 'Tab scrolls right 4/5 viewport' => sub {
     my $after = capture();
     unlike($after, qr/\bcol1\b/, 'col1 scrolled off after Tab');
 
-    teardown();
+    teardown(keep_alive => 1);
 };
 
 subtest 'Shift-Tab scrolls left 4/5 viewport' => sub {
     # Start scrolled right with Tab, then Shift-Tab should bring col1 back
-    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80);
-
-    send_keys('Tab');
-    select(undef, undef, undef, 0.2);
+    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80, reuse => 1);
 
     my $after_tab = capture();
     unlike($after_tab, qr/\bcol1\b/, 'col1 scrolled off after Tab');
