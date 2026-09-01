@@ -75,13 +75,10 @@ sub teardown {
 # Tests
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-subtest 'column numbers row appears' => sub {
+subtest 'column numbers hidden by default' => sub {
     launch();
     my $screen = capture();
-    # Column number row has right-aligned numbers; look for digits separated by spaces
-    like($screen, qr/\s1\s/, 'column number 1 visible on screen');
-    like($screen, qr/\s2\s/, 'column number 2 visible on screen');
-    like($screen, qr/\s3\s/, 'column number 3 visible on screen');
+    unlike($screen, qr/1\s+2\s+3/, 'column numbers not visible on initial render');
     teardown();
 };
 
@@ -121,6 +118,24 @@ subtest 'vertical scroll --- down one row' => sub {
     my $after = capture();
     unlike($after, qr/\bAlice\b/, 'Alice no longer in top data row after scroll');
     like($after,   qr/Bob/,       'Bob still visible after one scroll');
+    teardown();
+};
+
+subtest 'vertical scroll --- j and k keys' => sub {
+    launch(height => 7);
+    my $before = capture();
+    like($before, qr/Alice/, 'Alice visible before scroll');
+
+    # 'j' scrolls down one row
+    send_keys('j');
+    my $after_j = capture();
+    unlike($after_j, qr/\bAlice\b/, 'Alice scrolled off after j');
+    like($after_j,   qr/Bob/,       'Bob visible after j');
+
+    # 'k' scrolls back up one row
+    send_keys('k');
+    my $after_k = capture();
+    like($after_k, qr/Alice/, 'Alice visible again after k');
     teardown();
 };
 
@@ -357,13 +372,18 @@ subtest 'pressing Esc after - cancels prompt and returns to normal operation' =>
 
 subtest '1 and 0 keys toggle column numbers' => sub {
     launch();
-    my $screen1 = capture();
-    like($screen1, qr/1\s+2\s+3/, '1-based column numbers shown by default');
+    my $screen_init = capture();
+    unlike($screen_init, qr/1\s+2\s+3/, 'column numbers hidden by default');
 
-    # Press 1 to toggle 1-based column numbers off
+    # Press 1 to turn on 1-based column numbers
+    send_keys('1');
+    my $screen1 = capture();
+    like($screen1, qr/1\s+2\s+3/, '1-based column numbers shown after pressing 1');
+
+    # Press 1 again to toggle off
     send_keys('1');
     my $screen_off = capture();
-    unlike($screen_off, qr/1\s+2\s+3/, 'column numbers hidden after pressing 1');
+    unlike($screen_off, qr/1\s+2\s+3/, 'column numbers hidden after pressing 1 again');
 
     # Press 0 to turn on 0-based column numbers
     send_keys('0');
@@ -457,4 +477,149 @@ subtest '& option filters rows by regex and empty expression clears filter' => s
     teardown();
 };
 
+subtest 'Tab scrolls right 4/5 viewport' => sub {
+    # wide.tsv has 15 columns; viewport is 80 wide, so step = int(80*4/5) = 64
+    # col1..col5 headers are visible at offset 0; after one Tab they should scroll off
+    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80);
+    my $before = capture();
+    like($before, qr/col1/, 'col1 visible before Tab');
+
+    send_keys('Tab');
+    select(undef, undef, undef, 0.2);
+
+    my $after = capture();
+    unlike($after, qr/\bcol1\b/, 'col1 scrolled off after Tab');
+
+    teardown();
+};
+
+subtest 'Shift-Tab scrolls left 4/5 viewport' => sub {
+    # Start scrolled right with Tab, then Shift-Tab should bring col1 back
+    launch(cmd => "$t2v $fixtures/wide.tsv", width => 80);
+
+    send_keys('Tab');
+    select(undef, undef, undef, 0.2);
+
+    my $after_tab = capture();
+    unlike($after_tab, qr/\bcol1\b/, 'col1 scrolled off after Tab');
+
+    send_keys('BTab');
+    select(undef, undef, undef, 0.2);
+
+    my $after_shift_tab = capture();
+    like($after_shift_tab, qr/col1/, 'col1 back after Shift-Tab');
+
+    teardown();
+};
+
+# -------------------------------------------------------------------------------------------------
+# History Integration Tests
+# -------------------------------------------------------------------------------------------------
+
+subtest 'search history recall with Up arrow' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Run search for Bob
+    send_keys('/', 'B', 'o', 'b', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    # Open search prompt again, press Up arrow
+    send_keys('/', 'Up');
+    select(undef, undef, undef, 0.2);
+
+    my $prompt = capture();
+    like($prompt, qr/\/Bob/, 'search prompt recalled Bob via Up arrow');
+
+    # Press Enter to execute recalled search
+    send_keys('Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $screen = capture();
+    like($screen, qr/Bob/, 'search for Bob executed successfully from history');
+
+    teardown();
+};
+
+subtest 'filter history recall and edit with Up arrow' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Run filter for Alice
+    send_keys('&', 'A', 'l', 'i', 'c', 'e', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $filtered_alice = capture();
+    like($filtered_alice, qr/Alice/, 'Alice visible');
+    unlike($filtered_alice, qr/Bob/, 'Bob hidden');
+
+    # Open filter, press Up to recall Alice, edit to Bob using backspaces
+    send_keys('&', 'Up');
+    select(undef, undef, undef, 0.2);
+
+    my $prompt_alice = capture();
+    like($prompt_alice, qr/&Alice/, 'filter prompt recalled Alice via Up arrow');
+
+    # Backspace 'Alice', type 'Bob', press Enter
+    send_keys('BSpace', 'BSpace', 'BSpace', 'BSpace', 'BSpace', 'B', 'o', 'b', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $filtered_bob = capture();
+    like($filtered_bob, qr/Bob/, 'Bob visible after editing recalled filter');
+    unlike($filtered_bob, qr/Alice/, 'Alice hidden after editing recalled filter');
+
+    # Open filter again and verify history contains both Bob (newest) and Alice (older)
+    send_keys('&', 'Up');
+    select(undef, undef, undef, 0.2);
+    my $p_bob = capture();
+    like($p_bob, qr/&Bob/, 'newest filter history is Bob');
+
+    send_keys('Up');
+    select(undef, undef, undef, 0.2);
+    my $p_alice = capture();
+    like($p_alice, qr/&Alice/, 'previous filter history is Alice');
+
+    # Down arrow restores Bob, then Down arrow restores empty draft
+    send_keys('Down');
+    select(undef, undef, undef, 0.2);
+    my $p_bob_restored = capture();
+    like($p_bob_restored, qr/&Bob/, 'Down arrow restored Bob');
+
+    send_keys('Down');
+    select(undef, undef, undef, 0.2);
+    my $p_draft = capture();
+    like($p_draft, qr/&[ ]*$/, 'Down arrow past newest restored empty draft');
+
+    # Cancel prompt
+    send_keys('Escape');
+    teardown();
+};
+
+subtest 'multi-field search across column boundaries' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Search for pattern spanning name and age: 'Alice\t30'
+    send_keys('/', 'A', 'l', 'i', 'c', 'e', 'Tab', '3', '0', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $screen = capture();
+    like($screen, qr/Alice/, 'Alice row found with multi-field search');
+
+    teardown();
+};
+
+subtest 'multi-field filter across column boundaries' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Filter by pattern spanning name and age: 'Alice\t30'
+    send_keys('&', 'A', 'l', 'i', 'c', 'e', 'Tab', '3', '0', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $filtered = capture();
+    like($filtered, qr/Alice/, 'Alice is visible when multi-field filtered');
+    unlike($filtered, qr/Bob/, 'Bob is hidden when multi-field filtered');
+
+    teardown();
+};
+
 done_testing();
+
+

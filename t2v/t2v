@@ -31,19 +31,6 @@ Options:
   -h, --help   Show this help
 
 Keys:
-  Up/Down      Scroll one row
-  Left/Right   Scroll 10 characters
-  PgUp, <BS>   Scroll one page up
-  PgDn, Space  Scroll one page down
-  g/Home       Jump to first row
-  G/End        Jump to last row
-  /            Search Perl regex
-  n            Next search match
-  p            Previous search match
-  1            Toggle column numbers (1-based)
-  0            Toggle column numbers (0-based)
-  -N           Toggle line numbers
-  &            Filter rows by Perl regex (empty to clear)
   h, ?         Show keybinding help
   q            Quit
 END
@@ -111,40 +98,76 @@ sub format_option_prompt {
 # $n_cols   : number of columns
 # $regex    : compiled regex object (qr//)
 # Returns arrayref of [row_idx, col_idx] tuples.
+# Search data rows cell-by-cell or full-line for regex match.
+# $rows_ref : arrayref of data row arrayrefs
+# $n_cols   : number of columns
+# $regex    : compiled regex object (qr//)
+# $opt_delim: field delimiter string (default: "\t")
+# Returns arrayref of [row_idx, col_idx] tuples (deduplicated per row).
 sub find_matches {
-    my ($rows_ref, $n_cols, $regex) = @_;
+    my ($rows_ref, $n_cols, $regex, $opt_delim) = @_;
+    $opt_delim //= "\t";
     my @matches;
     return \@matches unless defined $regex && @$rows_ref;
+
     for my $ri (0 .. $#$rows_ref) {
-        my $row = $rows_ref->[$ri];
+        my $row  = $rows_ref->[$ri];
+        my $line = join($opt_delim, @$row);
+
+        # Precompute character ranges for each column in $line
+        my @col_ranges;
+        my $pos_idx = 0;
+        my $d_len   = length($opt_delim);
         for my $ci (0 .. $n_cols - 1) {
-            my $val = $row->[$ci] // '';
-            if ($val =~ $regex) {
-                push @matches, [$ri, $ci];
+            my $val_len = ($ci < @$row && defined $row->[$ci]) ? length($row->[$ci]) : 0;
+            my $start   = $pos_idx;
+            my $end     = $start + max(0, $val_len - 1);
+            push @col_ranges, [$start, $end];
+            $pos_idx += $val_len + $d_len;
+        }
+
+        my %seen_col;
+        while ($line =~ /$regex/g) {
+            my $m_start = $-[0];
+
+            # Guard against zero-width matches causing infinite loop
+            if ($+[0] == $-[0]) {
+                pos($line) = $-[0] + 1;
+            }
+
+            # Map m_start to column index (column where match start falls)
+            my $matched_col = $n_cols - 1;
+            for my $ci (0 .. $n_cols - 1) {
+                if ($ci == $n_cols - 1 || $m_start < $col_ranges[$ci + 1]->[0]) {
+                    $matched_col = $ci;
+                    last;
+                }
+            }
+
+            if (!$seen_col{$matched_col}++) {
+                push @matches, [$ri, $matched_col];
             }
         }
     }
     return \@matches;
 }
 
-# Filter row indices by matching any cell against a regex pattern.
+# Filter row indices by matching joined full-line string against a regex pattern.
 # $rows_ref : arrayref of data row arrayrefs
 # $regex    : compiled regex object (qr//) or undef
+# $opt_delim: field delimiter string (default: "\t")
 # Returns arrayref of matching row indices.
 sub filter_rows {
-    my ($rows_ref, $regex) = @_;
+    my ($rows_ref, $regex, $opt_delim) = @_;
     return [(0 .. $#$rows_ref)] unless defined $regex && @$rows_ref;
+    $opt_delim //= "\t";
     my @indices;
     for my $i (0 .. $#$rows_ref) {
-        my $row = $rows_ref->[$i];
-        my $match = 0;
-        for my $cell (@$row) {
-            if (defined $cell && $cell =~ $regex) {
-                $match = 1;
-                last;
-            }
+        my $row  = $rows_ref->[$i];
+        my $line = join($opt_delim, @$row);
+        if ($line =~ $regex) {
+            push @indices, $i;
         }
-        push @indices, $i if $match;
     }
     return \@indices;
 }
@@ -187,15 +210,55 @@ sub find_next_match_index {
 # $row_idx        : data row index (0-based)
 # $search_regex   : compiled regex (qr//) or undef
 # $active_match   : [active_row_idx, active_col_idx] or undef
+# $opt_delim      : field delimiter string (default: "\t")
 # Returns clipped display string (with ANSI highlight escape codes if matching).
 sub render_clipped_row {
-    my ($fields_ref, $col_widths_ref, $is_numeric_ref, $h_offset, $width, $row_idx, $search_regex, $active_match) = @_;
+    my ($fields_ref, $col_widths_ref, $is_numeric_ref, $h_offset, $width, $row_idx, $search_regex, $active_match, $opt_delim) = @_;
+    $opt_delim //= "\t";
 
     my $output       = '';
     my $printed_len  = 0;
     my $curr_pos     = 0;
     my $active_row   = defined $active_match ? $active_match->[0] : -1;
     my $active_col   = defined $active_match ? $active_match->[1] : -1;
+
+    # Precompute overlapping columns for search_regex on full line
+    my %overlapping_cols;
+    if (defined $search_regex) {
+        my $line = join($opt_delim, @$fields_ref);
+        my @col_ranges;
+        my $pos_idx = 0;
+        my $d_len   = length($opt_delim);
+        for my $ci (0 .. $#$col_widths_ref) {
+            my $val_len = ($ci < @$fields_ref && defined $fields_ref->[$ci]) ? length($fields_ref->[$ci]) : 0;
+            my $start   = $pos_idx;
+            my $end     = $start + max(0, $val_len - 1);
+            push @col_ranges, [$start, $end, $val_len];
+            $pos_idx += $val_len + $d_len;
+        }
+
+        while ($line =~ /$search_regex/g) {
+            my $m_start = $-[0];
+            my $m_end   = $+[0] - 1;
+
+            if ($+[0] == $-[0]) {
+                pos($line) = $-[0] + 1;
+            }
+
+            for my $ci (0 .. $#$col_widths_ref) {
+                my ($c_start, $c_end, $val_len) = @{$col_ranges[$ci]};
+                if ($val_len > 0) {
+                    if ($m_start <= $c_end && $m_end >= $c_start) {
+                        $overlapping_cols{$ci} = 1;
+                    }
+                } else {
+                    if ($m_start <= $c_start && $m_end >= $c_start) {
+                        $overlapping_cols{$ci} = 1;
+                    }
+                }
+            }
+        }
+    }
 
     for my $ci (0 .. $#$col_widths_ref) {
         last if $printed_len >= $width;
@@ -215,7 +278,7 @@ sub render_clipped_row {
         if ($v_start <= $v_end) {
             my $cell_vis = substr($cell, $v_start - $cell_start, $v_end - $v_start + 1);
 
-            if (defined $search_regex && $val ne '' && $val =~ $search_regex) {
+            if (defined $search_regex && $overlapping_cols{$ci}) {
                 if ($row_idx == $active_row && $ci == $active_col) {
                     $output .= "\e[42;30m$cell_vis\e[0m";  # active: black on green bg
                 } else {
@@ -364,6 +427,235 @@ sub total_line_width {
     return $w;
 }
 
+# -------------------------------------------------------------------------------------------------
+# HISTORY & LINE EDITING PURE FUNCTIONS
+# -------------------------------------------------------------------------------------------------
+
+# Add an entry to a history arrayref.
+# - Ignores undef or empty string
+# - Deduplicates by removing any existing occurrence and placing at the end
+# - Truncates from the front if exceeding $max_size (default 100)
+sub add_to_history {
+    my ($history_aref, $entry, $max_size) = @_;
+    $max_size //= 100;
+    return $history_aref unless defined $entry && $entry ne '';
+
+    # Remove any existing instance
+    @$history_aref = grep { $_ ne $entry } @$history_aref;
+    push @$history_aref, $entry;
+
+    while (@$history_aref > $max_size) {
+        shift @$history_aref;
+    }
+    return $history_aref;
+}
+
+# Load history file (~/.t2v_history or specified path).
+# Lines starting with '/' are search history; lines starting with '&' are filter history.
+# Returns (\@search_history, \@filter_history).
+sub load_history_file {
+    my ($filepath) = @_;
+    my @search_history;
+    my @filter_history;
+    return (\@search_history, \@filter_history) unless defined $filepath && -f $filepath;
+
+    if (open my $fh, '<', $filepath) {
+        while (my $line = <$fh>) {
+            chomp $line;
+            next if $line eq '';
+            my $prefix = substr($line, 0, 1);
+            my $entry  = substr($line, 1);
+            if ($prefix eq '/') {
+                add_to_history(\@search_history, $entry, 100);
+            } elsif ($prefix eq '&') {
+                add_to_history(\@filter_history, $entry, 100);
+            }
+        }
+        close $fh;
+    }
+    return (\@search_history, \@filter_history);
+}
+
+# Save history file.
+# Writes search entries prefixed with '/' and filter entries prefixed with '&'.
+sub save_history_file {
+    my ($filepath, $search_history_aref, $filter_history_aref, $max_size) = @_;
+    $max_size //= 100;
+    return 0 unless defined $filepath && $filepath ne '';
+
+    my @s = @{$search_history_aref // []};
+    my @f = @{$filter_history_aref // []};
+
+    @s = @s[max(0, @s - $max_size) .. $#s] if @s > $max_size;
+    @f = @f[max(0, @f - $max_size) .. $#f] if @f > $max_size;
+
+    if (open my $fh, '>', $filepath) {
+        for my $entry (@s) {
+            print $fh "/$entry\n";
+        }
+        for my $entry (@f) {
+            print $fh "&$entry\n";
+        }
+        close $fh;
+        return 1;
+    }
+    return 0;
+}
+
+# Perform one editing / navigation step on a prompt state hash ref.
+# $state = {
+#     buffer   => $string,
+#     cursor   => $int,
+#     history  => \@history,
+#     hist_idx => $int_or_undef,
+#     draft    => $string,
+# }
+sub prompt_edit_step {
+    my ($state, $key) = @_;
+    return unless defined $state && defined $key;
+
+    $state->{buffer}   //= '';
+    $state->{cursor}   //= length($state->{buffer});
+    $state->{history}  //= [];
+    $state->{draft}    //= '';
+
+    my $buf  = \$state->{buffer};
+    my $cur  = \$state->{cursor};
+    my $hist = $state->{history};
+
+    # Up Arrow or Ctrl-P (previous / older history)
+    if ($key eq "\e[A" || $key eq "\x10") {
+        if (@$hist) {
+            if (!defined $state->{hist_idx}) {
+                $state->{draft}    = $$buf;
+                $state->{hist_idx} = $#$hist;
+            } elsif ($state->{hist_idx} > 0) {
+                $state->{hist_idx}--;
+            }
+            $$buf = $hist->[$state->{hist_idx}];
+            $$cur = length($$buf);
+        }
+        return;
+    }
+
+    # Down Arrow or Ctrl-N (next / newer history)
+    if ($key eq "\e[B" || $key eq "\x0e") {
+        if (defined $state->{hist_idx}) {
+            if ($state->{hist_idx} < $#$hist) {
+                $state->{hist_idx}++;
+                $$buf = $hist->[$state->{hist_idx}];
+                $$cur = length($$buf);
+            } else {
+                $state->{hist_idx} = undef;
+                $$buf = $state->{draft};
+                $$cur = length($$buf);
+            }
+        }
+        return;
+    }
+
+    # Left Arrow or Ctrl-B (backward char)
+    if ($key eq "\e[D" || $key eq "\x02") {
+        $$cur = max(0, $$cur - 1);
+        return;
+    }
+
+    # Right Arrow or Ctrl-F (forward char)
+    if ($key eq "\e[C" || $key eq "\x06") {
+        $$cur = min(length($$buf), $$cur + 1);
+        return;
+    }
+
+    # Home, Ctrl-A
+    if ($key eq "\e[H" || $key eq "\e[1~" || $key eq "\x01") {
+        $$cur = 0;
+        return;
+    }
+
+    # End, Ctrl-E
+    if ($key eq "\e[F" || $key eq "\e[4~" || $key eq "\e[OF" || $key eq "\x05") {
+        $$cur = length($$buf);
+        return;
+    }
+
+    # Backspace (delete before cursor)
+    if ($key eq "\x7f" || $key eq "\x08") {
+        if ($$cur > 0) {
+            substr($$buf, $$cur - 1, 1, '');
+            $$cur--;
+        }
+        return;
+    }
+
+    # Delete, Ctrl-D (delete character under cursor)
+    if ($key eq "\e[3~" || $key eq "\x04") {
+        if ($$cur < length($$buf)) {
+            substr($$buf, $$cur, 1, '');
+        }
+        return;
+    }
+
+    # Ctrl-K (kill line to end)
+    if ($key eq "\x0b") {
+        if ($$cur < length($$buf)) {
+            $$buf = substr($$buf, 0, $$cur);
+        }
+        return;
+    }
+
+    # Ctrl-U (kill line to beginning / clear entire line)
+    if ($key eq "\x15") {
+        $$buf = '';
+        $$cur = 0;
+        return;
+    }
+
+    # Ctrl-W (backward kill word: unix-word-rubout)
+    if ($key eq "\x17") {
+        if ($$cur > 0) {
+            my $left  = substr($$buf, 0, $$cur);
+            my $right = substr($$buf, $$cur);
+            $left =~ s/\S+\s*$//;
+            $$buf = $left . $right;
+            $$cur = length($left);
+        }
+        return;
+    }
+
+    # Alt-B / Esc-b (backward word)
+    if ($key eq "\eb" || $key eq "\eB") {
+        if ($$cur > 0) {
+            my $left = substr($$buf, 0, $$cur);
+            if ($left =~ /^(.*?)(\S+)\s*$/) {
+                $$cur = length($1);
+            } else {
+                $$cur = 0;
+            }
+        }
+        return;
+    }
+
+    # Alt-F / Esc-f (forward word)
+    if ($key eq "\ef" || $key eq "\eF") {
+        if ($$cur < length($$buf)) {
+            my $right = substr($$buf, $$cur);
+            if ($right =~ /^\s*\S+/) {
+                $$cur += length($&);
+            } else {
+                $$cur = length($$buf);
+            }
+        }
+        return;
+    }
+
+    # Printable characters (ASCII 32 - 126, single char or pasted string)
+    if ($key =~ /^[\x20-\x7e]+$/) {
+        substr($$buf, $$cur, 0, $key);
+        $$cur += length($key);
+        return;
+    }
+}
+
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # MAIN PROGRAM --- only runs when executed directly, not when required by tests
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -440,9 +732,13 @@ sub _main {
     my ($term_rows, $term_cols) = _get_term_size();
 
     # ------ Terminal setup + cleanup ------------------------------------------------------------------------------------------------------------------------------------------
+    my $history_file = defined $ENV{HOME} ? "$ENV{HOME}/.t2v_history" : undef;
+    my ($search_history_ref, $filter_history_ref) = load_history_file($history_file);
+
     my $cleaned_up = 0;
     my $cleanup = sub {
         return if $cleaned_up++;
+        save_history_file($history_file, $search_history_ref, $filter_history_ref, 100) if defined $history_file;
         ReadMode('restore');
         print "\e[?25h\e[?1049l";  # show cursor, restore screen
     };
@@ -460,18 +756,23 @@ sub _main {
     my $h_offset                = 0;
     my $show_help               = 0;
     my $show_line_nums          = $opt_line_nums;
-    my $show_col_nums           = 1;
+    my $show_col_nums           = 0;
     my $col_base_idx            = 1;
     my $pending_line_num_toggle = 0;
     my $pending_dash            = 0;
 
-    my $filter_mode         = 0;
-    my $filter_query        = '';
-    my $filter_regex        = undef;
-    my $visible_indices_ref = filter_rows(\@data, undef);
+    my $prompt_mode  = undef;  # undef, '/' for search, '&' for filter
+    my $prompt_state = {
+        buffer   => '',
+        cursor   => 0,
+        history  => [],
+        hist_idx => undef,
+        draft    => '',
+    };
 
-    my $search_mode      = 0;
-    my $search_query     = '';
+    my $filter_regex        = undef;
+    my $visible_indices_ref = filter_rows(\@data, undef, $opt_delim);
+
     my $search_regex     = undef;
     my @search_matches   = ();
     my $search_match_idx = undef;
@@ -510,7 +811,7 @@ sub _main {
         }
 
         $search_regex   = $compiled;
-        @search_matches = @{ find_matches(\@data, $n_cols, $search_regex) };
+        @search_matches = @{ find_matches(\@data, $n_cols, $search_regex, $opt_delim) };
 
         if (!@search_matches) {
             $status_msg       = "Pattern not found: $pattern";
@@ -612,7 +913,8 @@ sub _main {
                 my $row_prefix = $show_line_nums ? format_line_num($ri, $n_rows) : '';
                 my $clipped    = render_clipped_row(
                     \@fields, $col_widths_ref, $is_numeric_ref,
-                    $h_offset, $content_w, $ri, $search_regex, $active_match_tuple
+                    $h_offset, $content_w, $ri, $search_regex, $active_match_tuple,
+                    $opt_delim
                 );
                 $output .= $BOLD . $row_prefix . $RESET . $clipped . $CLEAR_EOL . "\n";
             } else {
@@ -620,23 +922,19 @@ sub _main {
             }
         }
 
-        # Status bar or search prompt or option prompt
-        if ($search_mode) {
-            my $prompt = "/$search_query";
+        # Status bar or search/filter prompt or option prompt
+        if (defined $prompt_mode) {
+            my $prompt_prefix = $prompt_mode;
+            my $buf           = $prompt_state->{buffer};
+            my $prompt        = "$prompt_prefix$buf";
             if (length($prompt) > $term_cols) {
                 $prompt = substr($prompt, 0, $term_cols);
             } else {
                 $prompt .= ' ' x ($term_cols - length($prompt));
             }
             $output .= $GREEN_BAR . $prompt . $RESET;
-        } elsif ($filter_mode) {
-            my $prompt = "&$filter_query";
-            if (length($prompt) > $term_cols) {
-                $prompt = substr($prompt, 0, $term_cols);
-            } else {
-                $prompt .= ' ' x ($term_cols - length($prompt));
-            }
-            $output .= $GREEN_BAR . $prompt . $RESET;
+            my $cur_col = clamp(length($prompt_prefix) + $prompt_state->{cursor} + 1, 1, $term_cols);
+            $output .= "\e[${term_rows};${cur_col}H\e[?25h";
         } elsif (defined $status_msg) {
             my $is_err = $status_msg =~ /^(?:Error|Invalid|Pattern not found)/i;
             my $style  = $is_err ? "\e[7;31m" : "\e[7;33m";
@@ -646,13 +944,13 @@ sub _main {
             } else {
                 $msg .= ' ' x ($term_cols - length($msg));
             }
-            $output .= $style . $msg . $RESET;
+            $output .= $style . $msg . $RESET . "\e[?25l";
         } elsif ($pending_line_num_toggle) {
-            $output .= format_option_prompt($show_line_nums, $term_cols);
+            $output .= format_option_prompt($show_line_nums, $term_cols) . "\e[?25l";
         } elsif ($pending_dash) {
             my $dash_msg = '-';
             my $padded   = $dash_msg . ' ' x max(0, $term_cols - length($dash_msg));
-            $output .= "\e[7;33m" . $padded . "\e[0m";
+            $output .= "\e[7;33m" . $padded . "\e[0m\e[?25l";
         } else {
             my $total_vis = scalar @$visible_indices_ref;
             my $first_r   = $total_vis > 0 ? $v_offset + 1                      : 0;
@@ -666,7 +964,7 @@ sub _main {
             } else {
                 $status .= ' ' x ($term_cols - length($status));
             }
-            $output .= $GREEN_BAR . $status . $RESET;
+            $output .= $GREEN_BAR . $status . $RESET . "\e[?25l";
         }
 
         print $output;
@@ -677,8 +975,10 @@ sub _main {
             '+-----------------------------+',
             '|        KEYBINDINGS          |',
             '+-----------------------------+',
-            '|  Up / Down    Scroll rows   |',
+            '|  Up/Down, k/j Scroll rows   |',
             '|  Left / Right Scroll 10ch   |',
+            '|  Tab          Scroll 4/5 vp |',
+            '|  Shift-Tab    Scroll 4/5 vp |',
             '|  PgUp / <BS>  Scroll page   |',
             '|  PgDn / Space Scroll page   |',
             '|  g / Home     First row     |',
@@ -744,71 +1044,58 @@ sub _main {
             next;
         }
 
-        if ($search_mode) {
+        if (defined $prompt_mode) {
             if ($key eq "\e" || $key eq "\x03") {
-                $search_mode  = 0;
-                $search_query = '';
+                $prompt_mode = undef;
                 $draw_screen->();
                 next;
             } elsif ($key eq "\r" || $key eq "\n" || $key eq "\eOM") {
-                $search_mode = 0;
-                $execute_search->($search_query);
-                $draw_screen->();
-                next;
-            } elsif ($key eq "\x7f" || $key eq "\x08" || $key eq "\e[3~") {
-                substr($search_query, -1, 1, '') if length($search_query) > 0;
-                $draw_screen->();
-                next;
-            } elsif (length($key) == 1 && ord($key) >= 32 && ord($key) <= 126) {
-                $search_query .= $key;
-                $draw_screen->();
-                next;
-            }
-            next;
-        }
+                my $mode  = $prompt_mode;
+                my $query = $prompt_state->{buffer};
+                $prompt_mode = undef;
 
-        if ($filter_mode) {
-            if ($key eq "\e" || $key eq "\x03") {
-                $filter_mode  = 0;
-                $filter_query = '';
-                $draw_screen->();
-                next;
-            } elsif ($key eq "\r" || $key eq "\n" || $key eq "\eOM") {
-                $filter_mode = 0;
-                $status_msg  = undef;
-                if (!defined $filter_query || $filter_query eq '') {
-                    $filter_regex        = undef;
-                    $visible_indices_ref = filter_rows(\@data, undef);
-                } else {
-                    my $compiled;
-                    eval {
-                        local $SIG{__DIE__} = sub {};
-                        $compiled = qr/$filter_query/;
-                    };
-                    if ($@ || !$compiled) {
-                        $status_msg = "Invalid regex: $filter_query";
+                if (length($query) > 0) {
+                    if ($mode eq '/') {
+                        add_to_history($search_history_ref, $query, 100);
+                    } elsif ($mode eq '&') {
+                        add_to_history($filter_history_ref, $query, 100);
+                    }
+                    save_history_file($history_file, $search_history_ref, $filter_history_ref, 100) if defined $history_file;
+                }
+
+                if ($mode eq '/') {
+                    $execute_search->($query);
+                } elsif ($mode eq '&') {
+                    $status_msg = undef;
+                    if (!defined $query || $query eq '') {
+                        $filter_regex        = undef;
+                        $visible_indices_ref = filter_rows(\@data, undef, $opt_delim);
                     } else {
-                        $filter_regex        = $compiled;
-                        $visible_indices_ref = filter_rows(\@data, $filter_regex);
-                        if (!@$visible_indices_ref) {
-                            $status_msg = "No rows match filter: $filter_query";
+                        my $compiled;
+                        eval {
+                            local $SIG{__DIE__} = sub {};
+                            $compiled = qr/$query/;
+                        };
+                        if ($@ || !$compiled) {
+                            $status_msg = "Invalid regex: $query";
+                        } else {
+                            $filter_regex        = $compiled;
+                            $visible_indices_ref = filter_rows(\@data, $filter_regex, $opt_delim);
+                            if (!@$visible_indices_ref) {
+                                $status_msg = "No rows match filter: $query";
+                            }
                         }
                     }
+                    $v_offset = 0;
+                    $h_offset = clamp($h_offset, 0, $max_h->());
                 }
-                $v_offset = 0;
-                $h_offset = clamp($h_offset, 0, $max_h->());
                 $draw_screen->();
                 next;
-            } elsif ($key eq "\x7f" || $key eq "\x08" || $key eq "\e[3~") {
-                substr($filter_query, -1, 1, '') if length($filter_query) > 0;
-                $draw_screen->();
-                next;
-            } elsif (length($key) == 1 && ord($key) >= 32 && ord($key) <= 126) {
-                $filter_query .= $key;
+            } else {
+                prompt_edit_step($prompt_state, $key);
                 $draw_screen->();
                 next;
             }
-            next;
         }
 
         $status_msg = undef;
@@ -828,8 +1115,8 @@ sub _main {
             if ($key eq 'N' || $key eq 'n') {
                 $pending_line_num_toggle = 1;
             } elsif ($key eq '&') {
-                $filter_mode  = 1;
-                $filter_query = '';
+                $prompt_mode  = '&';
+                $prompt_state = { buffer => '', cursor => 0, history => $filter_history_ref, hist_idx => undef, draft => '' };
             }
             $draw_screen->();
             next;
@@ -842,12 +1129,12 @@ sub _main {
             $show_help = 1;
             $draw_help->();
         } elsif ($key eq '/') {
-            $search_mode  = 1;
-            $search_query = '';
+            $prompt_mode  = '/';
+            $prompt_state = { buffer => '', cursor => 0, history => $search_history_ref, hist_idx => undef, draft => '' };
             $draw_screen->();
         } elsif ($key eq '&' || $key eq '-&') {
-            $filter_mode  = 1;
-            $filter_query = '';
+            $prompt_mode  = '&';
+            $prompt_state = { buffer => '', cursor => 0, history => $filter_history_ref, hist_idx => undef, draft => '' };
             $draw_screen->();
         } elsif ($key eq 'n') {
             $navigate_match->(1);
@@ -879,10 +1166,10 @@ sub _main {
         } elsif ($key eq '-') {
             $pending_dash = 1;
             $draw_screen->();
-        } elsif ($key eq "\e[A") {                    # Up
+        } elsif ($key eq "\e[A" || $key eq 'k') {                    # Up / k
             $v_offset = clamp($v_offset - 1, 0, $max_v->());
             $draw_screen->();
-        } elsif ($key eq "\e[B") {                    # Down
+        } elsif ($key eq "\e[B" || $key eq 'j') {                    # Down / j
             $v_offset = clamp($v_offset + 1, 0, $max_v->());
             $draw_screen->();
         } elsif ($key eq "\e[D") {                    # Left
@@ -890,6 +1177,14 @@ sub _main {
             $draw_screen->();
         } elsif ($key eq "\e[C") {                    # Right
             $h_offset = clamp($h_offset + H_SCROLL_STEP, 0, $max_h->());
+            $draw_screen->();
+        } elsif ($key eq "\t") {                       # Tab - scroll right 4/5 viewport
+            my $step = int($term_cols * 4 / 5) || 1;
+            $h_offset = clamp($h_offset + $step, 0, $max_h->());
+            $draw_screen->();
+        } elsif ($key eq "\e[Z") {                     # Shift-Tab - scroll left 4/5 viewport
+            my $step = int($term_cols * 4 / 5) || 1;
+            $h_offset = clamp($h_offset - $step, 0, $max_h->());
             $draw_screen->();
         } elsif ($key eq "\e[5~" || $key eq "\x7f" || $key eq "\x08" || $key eq 'b') {   # PgUp / Backspace / b
             $v_offset = clamp($v_offset - $visible_data_rows->(), 0, $max_v->());

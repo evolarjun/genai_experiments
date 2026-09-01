@@ -284,6 +284,28 @@ subtest 'find_matches' => sub {
     my $regex = qr/a/i;
     my $matches = find_matches(\@rows, 3, $regex);
     is_deeply($matches, [ [0, 0], [2, 0] ], 'finds case-insensitive matching cells');
+
+    # Multi-field match across tab delimiter
+    my $multi_match = find_matches(\@rows, 3, qr/Alice\t30/);
+    is_deeply($multi_match, [ [0, 0] ], 'matches across tab delimiter, starting at col 0');
+
+    # Multi-field match starting in col 1 across delimiter
+    my $multi_match2 = find_matches(\@rows, 3, qr/30\t98\.5/);
+    is_deeply($multi_match2, [ [0, 1] ], 'matches starting in col 1 across delimiter');
+
+    # Custom delimiter
+    my $csv_rows = [ ['Alice', '30'], ['Bob', '25'] ];
+    my $csv_matches = find_matches($csv_rows, 2, qr/Alice,30/, ',');
+    is_deeply($csv_matches, [ [0, 0] ], 'matches multi-field pattern with custom delimiter');
+
+    # Deduplication per row
+    my $dup_rows = [ ['cat', 'cat', 'dog'] ];
+    my $dup_matches = find_matches($dup_rows, 3, qr/cat/);
+    is_deeply($dup_matches, [ [0, 0], [0, 1] ], 'finds matches in col 0 and col 1');
+
+    my $dup_rows_same_col = [ ['cat cat', 'dog'] ];
+    my $dup_same_col = find_matches($dup_rows_same_col, 2, qr/cat/);
+    is_deeply($dup_same_col, [ [0, 0] ], 'deduplicates multiple matches in the same cell');
 };
 
 subtest 'filter_rows' => sub {
@@ -304,6 +326,31 @@ subtest 'filter_rows' => sub {
 
     my $nomatch = filter_rows(\@rows, qr/NonExistent/);
     is_deeply($nomatch, [], 'no match returns empty arrayref');
+
+    # Multi-field regex match across tab delimiter
+    my $multi_filter = filter_rows(\@rows, qr/Alice\t30/);
+    is_deeply($multi_filter, [0], 'filters rows matching across column boundary');
+
+    # Custom delimiter filter
+    my $csv_rows = [ ['Alice', '30'], ['Bob', '25'] ];
+    my $csv_filter = filter_rows($csv_rows, qr/Bob,25/, ',');
+    is_deeply($csv_filter, [1], 'filters rows matching custom delimiter');
+};
+
+subtest 'render_clipped_row --- multi-field match highlighting' => sub {
+    my $fields     = ['Alice', '30', '98.5'];
+    my $col_widths = [5, 3, 7];
+    my $is_numeric = [0, 1, 1];
+
+    # Multi-field match regex: qr/Alice\t30/
+    # Active match target is [0, 0]
+    # Cell 0 (Alice) overlaps match and is active -> \e[42;30m
+    # Cell 1 (30) overlaps match and is non-active -> \e[32m
+    # Cell 2 (98.5) does not overlap -> no ANSI codes
+    my $rendered = render_clipped_row($fields, $col_widths, $is_numeric, 0, 30, 0, qr/Alice\t30/, [0, 0], "\t");
+    like($rendered, qr/\e\[42;30mAlice\e\[0m/, 'active col 0 has black on green bg');
+    like($rendered, qr/\e\[32m 30\e\[0m/, 'overlapping col 1 has green text');
+    unlike($rendered, qr/98\.5.*\e\[/, 'non-overlapping col 2 is not highlighted');
 };
 
 subtest 'find_next_match_index --- forward navigation & wrap' => sub {
@@ -364,5 +411,235 @@ subtest 'compute_search_h_offset' => sub {
     is(compute_search_h_offset(200, 20, 80, 100), 100, 'clamps target offset to max_h');
 };
 
+# -------------------------------------------------------------------------------------------------
+# History & ReadLine-style Prompt Editing Tests
+# -------------------------------------------------------------------------------------------------
+
+subtest 'add_to_history' => sub {
+    my $hist = [];
+    add_to_history($hist, 'first', 100);
+    is_deeply($hist, ['first'], 'adds first entry');
+
+    add_to_history($hist, 'second', 100);
+    is_deeply($hist, ['first', 'second'], 'adds second entry');
+
+    # Ignore empty or undef
+    add_to_history($hist, '', 100);
+    add_to_history($hist, undef, 100);
+    is_deeply($hist, ['first', 'second'], 'ignores empty and undef entries');
+
+    # Move existing entry to end
+    add_to_history($hist, 'first', 100);
+    is_deeply($hist, ['second', 'first'], 'moves duplicate to end');
+
+    # Consecutive duplicate
+    add_to_history($hist, 'first', 100);
+    is_deeply($hist, ['second', 'first'], 'consecutive duplicate not duplicated');
+
+    # Truncation at max_size
+    my $small_hist = ['a', 'b', 'c'];
+    add_to_history($small_hist, 'd', 3);
+    is_deeply($small_hist, ['b', 'c', 'd'], 'truncates oldest when exceeding max_size');
+};
+
+subtest 'load_history_file & save_history_file' => sub {
+    require File::Temp;
+    my $temp_file = File::Temp->new(UNLINK => 1)->filename;
+
+    # Missing file returns empty arrays
+    my ($search_h, $filter_h) = load_history_file('/path/to/nonexistent/t2v_history_test');
+    is_deeply($search_h, [], 'search history empty for missing file');
+    is_deeply($filter_h, [], 'filter history empty for missing file');
+
+    # Save histories
+    my $s_in = ['pattern1', 'pattern2'];
+    my $f_in = ['filter1', 'filter2'];
+    save_history_file($temp_file, $s_in, $f_in, 100);
+
+    # Load back
+    my ($s_out, $f_out) = load_history_file($temp_file);
+    is_deeply($s_out, ['pattern1', 'pattern2'], 'search history loaded correctly');
+    is_deeply($f_out, ['filter1', 'filter2'], 'filter history loaded correctly');
+
+    # Truncation on save
+    my @many_s = map { "s$_" } (1 .. 120);
+    my @many_f = map { "f$_" } (1 .. 120);
+    save_history_file($temp_file, \@many_s, \@many_f, 100);
+    my ($s_trunc, $f_trunc) = load_history_file($temp_file);
+    is(scalar(@$s_trunc), 100, 'search history capped at 100 on save');
+    is(scalar(@$f_trunc), 100, 'filter history capped at 100 on save');
+    is($s_trunc->[0], 's21', 'oldest search entries truncated');
+    is($s_trunc->[-1], 's120', 'newest search entry preserved');
+};
+
+subtest 'prompt_edit_step --- basic typing & cursor' => sub {
+    my $state = {
+        buffer   => '',
+        cursor   => 0,
+        history  => ['foo', 'bar'],
+        hist_idx => undef,
+        draft    => '',
+    };
+
+    # Type 'a', 'b', 'c'
+    prompt_edit_step($state, 'a');
+    prompt_edit_step($state, 'b');
+    prompt_edit_step($state, 'c');
+    is($state->{buffer}, 'abc', 'typed abc');
+    is($state->{cursor}, 3, 'cursor at end');
+
+    # Cursor left
+    prompt_edit_step($state, "\e[D");
+    is($state->{cursor}, 2, 'cursor moved left');
+    prompt_edit_step($state, "\x02"); # Ctrl-B
+    is($state->{cursor}, 1, 'cursor moved left with Ctrl-B');
+
+    # Insert 'X' at cursor 1 -> 'aXbc'
+    prompt_edit_step($state, 'X');
+    is($state->{buffer}, 'aXbc', 'inserted char at cursor');
+    is($state->{cursor}, 2, 'cursor advanced');
+
+    # Cursor right
+    prompt_edit_step($state, "\e[C");
+    is($state->{cursor}, 3, 'cursor moved right');
+    prompt_edit_step($state, "\x06"); # Ctrl-F
+    is($state->{cursor}, 4, 'cursor moved right with Ctrl-F');
+
+    # Home / End / Ctrl-A / Ctrl-E
+    prompt_edit_step($state, "\x01"); # Ctrl-A
+    is($state->{cursor}, 0, 'cursor at start with Ctrl-A');
+    prompt_edit_step($state, "\x05"); # Ctrl-E
+    is($state->{cursor}, 4, 'cursor at end with Ctrl-E');
+    prompt_edit_step($state, "\e[H"); # Home
+    is($state->{cursor}, 0, 'cursor at start with Home');
+    prompt_edit_step($state, "\e[F"); # End
+    is($state->{cursor}, 4, 'cursor at end with End');
+};
+
+subtest 'prompt_edit_step --- backspace and delete' => sub {
+    my $state = {
+        buffer   => 'abcd',
+        cursor   => 2,
+        history  => [],
+        hist_idx => undef,
+        draft    => '',
+    };
+
+    # Backspace at cursor 2 ('ab|cd') -> deletes 'b' -> 'acd', cursor 1
+    prompt_edit_step($state, "\x7f");
+    is($state->{buffer}, 'acd', 'backspace deleted preceding char');
+    is($state->{cursor}, 1, 'cursor moved left');
+
+    # Delete at cursor 1 ('a|cd') -> deletes 'c' -> 'ad', cursor 1
+    prompt_edit_step($state, "\e[3~");
+    is($state->{buffer}, 'ad', 'delete deleted char under cursor');
+    is($state->{cursor}, 1, 'cursor remained at 1');
+
+    # Ctrl-D at cursor 1 ('a|d') -> deletes 'd' -> 'a', cursor 1
+    prompt_edit_step($state, "\x04");
+    is($state->{buffer}, 'a', 'Ctrl-D deleted char under cursor');
+    is($state->{cursor}, 1, 'cursor at 1');
+
+    # Delete at end of buffer does nothing
+    prompt_edit_step($state, "\e[3~");
+    is($state->{buffer}, 'a', 'Delete at end is no-op');
+
+    # Backspace at start of buffer does nothing
+    $state->{cursor} = 0;
+    prompt_edit_step($state, "\x7f");
+    is($state->{buffer}, 'a', 'Backspace at start is no-op');
+};
+
+subtest 'prompt_edit_step --- kill and word navigation (ReadLine emulation)' => sub {
+    my $state = {
+        buffer   => 'hello world again',
+        cursor   => 5, # 'hello| world again'
+        history  => [],
+        hist_idx => undef,
+        draft    => '',
+    };
+
+    # Ctrl-K (kill to end)
+    prompt_edit_step($state, "\x0b");
+    is($state->{buffer}, 'hello', 'Ctrl-K killed to end of line');
+    is($state->{cursor}, 5, 'cursor remains at 5');
+
+    # Type more
+    prompt_edit_step($state, ' brave new world');
+    is($state->{buffer}, 'hello brave new world', 'appended text');
+
+    # Ctrl-W (backward kill word)
+    prompt_edit_step($state, "\x17");
+    is($state->{buffer}, 'hello brave new ', 'Ctrl-W killed word');
+
+    # Ctrl-U (kill entire line / kill to beginning)
+    prompt_edit_step($state, "\x15");
+    is($state->{buffer}, '', 'Ctrl-U cleared line');
+    is($state->{cursor}, 0, 'cursor reset to 0');
+
+    # Word navigation (Alt-b, Alt-f)
+    $state->{buffer} = 'one two three';
+    $state->{cursor} = 13;
+    prompt_edit_step($state, "\eb"); # Alt-B
+    is($state->{cursor}, 8, 'Alt-B moved back one word (to "three")');
+    prompt_edit_step($state, "\eb");
+    is($state->{cursor}, 4, 'Alt-B moved back another word (to "two")');
+    prompt_edit_step($state, "\ef"); # Alt-F
+    is($state->{cursor}, 7, 'Alt-F moved forward one word');
+};
+
+subtest 'prompt_edit_step --- history navigation (Up / Down)' => sub {
+    my $state = {
+        buffer   => 'my_draft',
+        cursor   => 8,
+        history  => ['first_regex', 'second_regex', 'third_regex'],
+        hist_idx => undef,
+        draft    => '',
+    };
+
+    # Up Arrow -> loads newest history entry ('third_regex')
+    prompt_edit_step($state, "\e[A");
+    is($state->{buffer}, 'third_regex', 'Up recalls newest history item');
+    is($state->{cursor}, length('third_regex'), 'cursor placed at end of recalled text');
+    is($state->{draft}, 'my_draft', 'draft saved');
+    is($state->{hist_idx}, 2, 'history index at 2');
+
+    # Up Arrow again -> loads 'second_regex'
+    prompt_edit_step($state, "\e[A");
+    is($state->{buffer}, 'second_regex', 'Up recalls previous history item');
+    is($state->{hist_idx}, 1, 'history index at 1');
+
+    # Up Arrow again -> loads 'first_regex'
+    prompt_edit_step($state, "\e[A");
+    is($state->{buffer}, 'first_regex', 'Up recalls oldest history item');
+    is($state->{hist_idx}, 0, 'history index at 0');
+
+    # Up Arrow at oldest -> stays at 'first_regex'
+    prompt_edit_step($state, "\e[A");
+    is($state->{buffer}, 'first_regex', 'Up at oldest stays at oldest');
+    is($state->{hist_idx}, 0, 'history index remains 0');
+
+    # Down Arrow -> loads 'second_regex'
+    prompt_edit_step($state, "\e[B");
+    is($state->{buffer}, 'second_regex', 'Down moves forward to second_regex');
+    is($state->{hist_idx}, 1, 'history index at 1');
+
+    # Down Arrow -> loads 'third_regex'
+    prompt_edit_step($state, "\e[B");
+    is($state->{buffer}, 'third_regex', 'Down moves forward to third_regex');
+    is($state->{hist_idx}, 2, 'history index at 2');
+
+    # Down Arrow past newest -> restores draft
+    prompt_edit_step($state, "\e[B");
+    is($state->{buffer}, 'my_draft', 'Down past newest restores uncommitted draft');
+    is($state->{cursor}, length('my_draft'), 'cursor at end of draft');
+    is($state->{hist_idx}, undef, 'history index reset to undef');
+
+    # Down Arrow when already at draft is no-op
+    prompt_edit_step($state, "\e[B");
+    is($state->{buffer}, 'my_draft', 'Down when at draft remains at draft');
+};
+
 done_testing();
+
 
