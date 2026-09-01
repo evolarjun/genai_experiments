@@ -33,8 +33,8 @@ Options:
 Keys:
   Up/Down      Scroll one row
   Left/Right   Scroll 10 characters
-  PgUp/PgDn   Scroll one page
-  Space        Scroll one page (forward)
+  PgUp, <BS>   Scroll one page up
+  PgDn, Space  Scroll one page down
   g/Home       Jump to first row
   G/End        Jump to last row
   /            Search Perl regex
@@ -43,7 +43,8 @@ Keys:
   1            Toggle column numbers (1-based)
   0            Toggle column numbers (0-based)
   -N           Toggle line numbers
-  ?            Show keybinding help
+  &            Filter rows by Perl regex (empty to clear)
+  h, ?         Show keybinding help
   q            Quit
 END
     exit 1;
@@ -124,6 +125,28 @@ sub find_matches {
         }
     }
     return \@matches;
+}
+
+# Filter row indices by matching any cell against a regex pattern.
+# $rows_ref : arrayref of data row arrayrefs
+# $regex    : compiled regex object (qr//) or undef
+# Returns arrayref of matching row indices.
+sub filter_rows {
+    my ($rows_ref, $regex) = @_;
+    return [(0 .. $#$rows_ref)] unless defined $regex && @$rows_ref;
+    my @indices;
+    for my $i (0 .. $#$rows_ref) {
+        my $row = $rows_ref->[$i];
+        my $match = 0;
+        for my $cell (@$row) {
+            if (defined $cell && $cell =~ $regex) {
+                $match = 1;
+                last;
+            }
+        }
+        push @indices, $i if $match;
+    }
+    return \@indices;
 }
 
 # Find index in $matches_ref relative to ($curr_row, $curr_col).
@@ -432,7 +455,7 @@ sub _main {
     print "\e[?1049h\e[?25l";  # alt screen, hide cursor
     ReadMode('cbreak');
 
-    # ------ Scroll & Search state -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Scroll, Search & Filter state ---------------------------------------------------------------------------------------------------------------------------------------------
     my $v_offset                = 0;
     my $h_offset                = 0;
     my $show_help               = 0;
@@ -440,7 +463,12 @@ sub _main {
     my $show_col_nums           = 1;
     my $col_base_idx            = 1;
     my $pending_line_num_toggle = 0;
-    my $pending_dash             = 0;
+    my $pending_dash            = 0;
+
+    my $filter_mode         = 0;
+    my $filter_query        = '';
+    my $filter_regex        = undef;
+    my $visible_indices_ref = filter_rows(\@data, undef);
 
     my $search_mode      = 0;
     my $search_query     = '';
@@ -450,9 +478,10 @@ sub _main {
     my $status_msg       = undef;
 
     # Rows available for data (total rows minus non-data rows: header, status bar, and optional colnum row)
+    my $n_filtered_rows   = sub { scalar @$visible_indices_ref };
     my $visible_data_rows = sub { $term_rows - ($show_col_nums ? 3 : 2) };
-    my $max_v = sub { max(0, $n_rows - $visible_data_rows->()) };
-    my $max_h = sub {
+    my $max_v             = sub { max(0, $n_filtered_rows->() - $visible_data_rows->()) };
+    my $max_h             = sub {
         my $avail = $show_line_nums ? max(1, $term_cols - (length($n_rows) + 1)) : $term_cols;
         max(0, total_line_width($col_widths_ref) - $avail);
     };
@@ -498,8 +527,10 @@ sub _main {
         }
 
         my $vdr = $visible_data_rows->();
-        if ($r < $v_offset || $r >= $v_offset + $vdr) {
-            $v_offset = clamp($r, 0, $max_v->());
+        my ($target_vis_idx) = grep { $visible_indices_ref->[$_] == $r } (0 .. $#$visible_indices_ref);
+        $target_vis_idx //= $r;
+        if ($target_vis_idx < $v_offset || $target_vis_idx >= $v_offset + $vdr) {
+            $v_offset = clamp($target_vis_idx, 0, $max_v->());
         }
 
         my $col_start = 0;
@@ -532,8 +563,10 @@ sub _main {
         }
 
         my $vdr = $visible_data_rows->();
-        if ($r < $v_offset || $r >= $v_offset + $vdr) {
-            $v_offset = clamp($r, 0, $max_v->());
+        my ($target_vis_idx_nav) = grep { $visible_indices_ref->[$_] == $r } (0 .. $#$visible_indices_ref);
+        $target_vis_idx_nav //= $r;
+        if ($target_vis_idx_nav < $v_offset || $target_vis_idx_nav >= $v_offset + $vdr) {
+            $v_offset = clamp($target_vis_idx_nav, 0, $max_v->());
         }
 
         my $col_start = 0;
@@ -571,8 +604,9 @@ sub _main {
             ? $search_matches[$search_match_idx]
             : undef;
 
-        for my $ri ($v_offset .. $v_offset + $vdr - 1) {
-            if ($ri < $n_rows) {
+        for my $i ($v_offset .. $v_offset + $vdr - 1) {
+            if ($i < @$visible_indices_ref) {
+                my $ri         = $visible_indices_ref->[$i];
                 my $row        = $data[$ri];
                 my @fields     = map { $row->[$_] // '' } (0 .. $n_cols - 1);
                 my $row_prefix = $show_line_nums ? format_line_num($ri, $n_rows) : '';
@@ -589,6 +623,14 @@ sub _main {
         # Status bar or search prompt or option prompt
         if ($search_mode) {
             my $prompt = "/$search_query";
+            if (length($prompt) > $term_cols) {
+                $prompt = substr($prompt, 0, $term_cols);
+            } else {
+                $prompt .= ' ' x ($term_cols - length($prompt));
+            }
+            $output .= $GREEN_BAR . $prompt . $RESET;
+        } elsif ($filter_mode) {
+            my $prompt = "&$filter_query";
             if (length($prompt) > $term_cols) {
                 $prompt = substr($prompt, 0, $term_cols);
             } else {
@@ -612,11 +654,12 @@ sub _main {
             my $padded   = $dash_msg . ' ' x max(0, $term_cols - length($dash_msg));
             $output .= "\e[7;33m" . $padded . "\e[0m";
         } else {
-            my $first_r = $n_rows > 0 ? $v_offset + 1                         : 0;
-            my $last_r  = $n_rows > 0 ? min($v_offset + $vdr, $n_rows)        : 0;
-            my $status  = sprintf(
+            my $total_vis = scalar @$visible_indices_ref;
+            my $first_r   = $total_vis > 0 ? $v_offset + 1                      : 0;
+            my $last_r    = $total_vis > 0 ? min($v_offset + $vdr, $total_vis)  : 0;
+            my $status    = sprintf(
                 " Rows %d-%d of %d | Col offset: %d | %s",
-                $first_r, $last_r, $n_rows, $h_offset, $filename
+                $first_r, $last_r, $total_vis, $h_offset, $filename
             );
             if (length($status) > $term_cols) {
                 $status = substr($status, 0, $term_cols);
@@ -635,19 +678,20 @@ sub _main {
             '|        KEYBINDINGS          |',
             '+-----------------------------+',
             '|  Up / Down    Scroll rows   |',
-            '|  Left / Right Scroll 10ch  |',
-            '|  PgUp / PgDn  Scroll page  |',
-            '|  Space        Scroll page  |',
+            '|  Left / Right Scroll 10ch   |',
+            '|  PgUp / <BS>  Scroll page   |',
+            '|  PgDn / Space Scroll page   |',
             '|  g / Home     First row     |',
             '|  G / End      Last row      |',
             '|  /            Search regex  |',
+            '|  &            Filter rows   |',
             '|  n            Next match    |',
             '|  p            Prev match    |',
             '|  1            1-based cols  |',
             '|  0            0-based cols  |',
             '|  -N           Line numbers  |',
             '|  q            Quit          |',
-            '|  ?            Toggle help   |',
+            '|  h / ?        Toggle help   |',
             '|                             |',
             '|  Press any key to dismiss   |',
             '+-----------------------------+',
@@ -723,6 +767,50 @@ sub _main {
             next;
         }
 
+        if ($filter_mode) {
+            if ($key eq "\e" || $key eq "\x03") {
+                $filter_mode  = 0;
+                $filter_query = '';
+                $draw_screen->();
+                next;
+            } elsif ($key eq "\r" || $key eq "\n" || $key eq "\eOM") {
+                $filter_mode = 0;
+                $status_msg  = undef;
+                if (!defined $filter_query || $filter_query eq '') {
+                    $filter_regex        = undef;
+                    $visible_indices_ref = filter_rows(\@data, undef);
+                } else {
+                    my $compiled;
+                    eval {
+                        local $SIG{__DIE__} = sub {};
+                        $compiled = qr/$filter_query/;
+                    };
+                    if ($@ || !$compiled) {
+                        $status_msg = "Invalid regex: $filter_query";
+                    } else {
+                        $filter_regex        = $compiled;
+                        $visible_indices_ref = filter_rows(\@data, $filter_regex);
+                        if (!@$visible_indices_ref) {
+                            $status_msg = "No rows match filter: $filter_query";
+                        }
+                    }
+                }
+                $v_offset = 0;
+                $h_offset = clamp($h_offset, 0, $max_h->());
+                $draw_screen->();
+                next;
+            } elsif ($key eq "\x7f" || $key eq "\x08" || $key eq "\e[3~") {
+                substr($filter_query, -1, 1, '') if length($filter_query) > 0;
+                $draw_screen->();
+                next;
+            } elsif (length($key) == 1 && ord($key) >= 32 && ord($key) <= 126) {
+                $filter_query .= $key;
+                $draw_screen->();
+                next;
+            }
+            next;
+        }
+
         $status_msg = undef;
 
         if ($pending_line_num_toggle) {
@@ -730,29 +818,36 @@ sub _main {
             if ($key eq "\r" || $key eq "\n" || $key eq "\eOM") {
                 $show_line_nums = !$show_line_nums;
                 $h_offset = clamp($h_offset, 0, $max_h->());
-                $draw_screen->();
-                next;
             }
+            $draw_screen->();
+            next;
         }
 
         if ($pending_dash) {
             $pending_dash = 0;
             if ($key eq 'N' || $key eq 'n') {
                 $pending_line_num_toggle = 1;
-                $draw_screen->();
-                next;
+            } elsif ($key eq '&') {
+                $filter_mode  = 1;
+                $filter_query = '';
             }
+            $draw_screen->();
+            next;
         }
 
         if ($key eq 'q') {
             $cleanup->();
             exit 0;
-        } elsif ($key eq '?') {
+        } elsif ($key eq '?' || $key eq 'h') {
             $show_help = 1;
             $draw_help->();
         } elsif ($key eq '/') {
             $search_mode  = 1;
             $search_query = '';
+            $draw_screen->();
+        } elsif ($key eq '&' || $key eq '-&') {
+            $filter_mode  = 1;
+            $filter_query = '';
             $draw_screen->();
         } elsif ($key eq 'n') {
             $navigate_match->(1);
@@ -796,7 +891,7 @@ sub _main {
         } elsif ($key eq "\e[C") {                    # Right
             $h_offset = clamp($h_offset + H_SCROLL_STEP, 0, $max_h->());
             $draw_screen->();
-        } elsif ($key eq "\e[5~") {                   # PgUp
+        } elsif ($key eq "\e[5~" || $key eq "\x7f" || $key eq "\x08" || $key eq 'b') {   # PgUp / Backspace / b
             $v_offset = clamp($v_offset - $visible_data_rows->(), 0, $max_v->());
             $draw_screen->();
         } elsif ($key eq "\e[6~" || $key eq ' ') {    # PgDn or Space

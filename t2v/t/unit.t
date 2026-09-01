@@ -286,6 +286,26 @@ subtest 'find_matches' => sub {
     is_deeply($matches, [ [0, 0], [2, 0] ], 'finds case-insensitive matching cells');
 };
 
+subtest 'filter_rows' => sub {
+    my @rows = (
+        ['Alice', '30', 'New York'],
+        ['Bob',   '25', 'Los Angeles'],
+        ['Carol', '42', 'Chicago'],
+    );
+
+    my $all = filter_rows(\@rows, undef);
+    is_deeply($all, [0, 1, 2], 'undef regex returns all row indices');
+
+    my $filtered = filter_rows(\@rows, qr/Alice/);
+    is_deeply($filtered, [0], 'filters rows matching regex');
+
+    my $city_match = filter_rows(\@rows, qr/Chicago/);
+    is_deeply($city_match, [2], 'filters rows matching cell in another column');
+
+    my $nomatch = filter_rows(\@rows, qr/NonExistent/);
+    is_deeply($nomatch, [], 'no match returns empty arrayref');
+};
+
 subtest 'find_next_match_index --- forward navigation & wrap' => sub {
     my $matches = [ [0, 1], [1, 1], [2, 1] ];
 

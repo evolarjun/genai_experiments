@@ -194,6 +194,17 @@ subtest 'help overlay appears on ?' => sub {
     teardown();
 };
 
+subtest 'help overlay appears on h' => sub {
+    launch();
+    send_keys('h');
+    my $screen = capture();
+    like($screen, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
+    like($screen, qr/Quit/,        'help overlay shows Quit binding');
+    like($screen, qr/<BS>/,        'help overlay shows <BS> binding');
+    like($screen, qr/&/,           'help overlay shows & binding');
+    teardown();
+};
+
 subtest 'help overlay dismissed by any key' => sub {
     launch();
     send_keys('?');
@@ -266,6 +277,23 @@ subtest 'space bar scrolls by one screenful (PgDn synonym)' => sub {
     teardown();
 };
 
+subtest 'backspace key scrolls up by one screenful (PgUp synonym)' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8);
+
+    # Scroll down first
+    send_keys('Space');
+    select(undef, undef, undef, 0.2);
+    my $down = capture();
+    unlike($down, qr/\bAlice\b/, 'Alice scrolled off after Space');
+
+    # Press Backspace to scroll back up
+    send_keys('BSpace');
+    select(undef, undef, undef, 0.2);
+    my $up = capture();
+    like($up, qr/\bAlice\b/, 'Alice visible again after Backspace');
+    teardown();
+};
+
 subtest '-N flag shows line numbers' => sub {
     launch(cmd => "$t2v -N $fixtures/basic.tsv");
     my $screen = capture();
@@ -319,6 +347,24 @@ subtest 'N key toggles line numbers' => sub {
     unlike($off, qr/^\s*1\s+Alice/m, 'line numbers hidden after pressing Enter');
     teardown();
 };
+
+subtest 'pressing Esc after - cancels prompt and returns to normal operation' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+    send_keys('-');
+    select(undef, undef, undef, 0.2);
+
+    my $prompt = capture();
+    like($prompt, qr/^\s*-\s*$/m, 'dash prompt active on status bar');
+
+    send_keys('Escape');
+    select(undef, undef, undef, 0.2);
+
+    my $normal = capture();
+    like($normal, qr/Rows \d+-\d+ of \d+/, 'returns to normal operation status bar after Esc');
+    unlike($normal, qr/^\s*-\s*$/m, 'dash prompt cleared after Esc');
+    teardown();
+};
+
 
 subtest '1 and 0 keys toggle column numbers' => sub {
     launch();
@@ -395,6 +441,35 @@ subtest 'invalid regex handling' => sub {
 
     my $screen = capture();
     like($screen, qr/Invalid regex/i, 'status bar shows invalid regex error message');
+
+    teardown();
+};
+
+subtest '& option filters rows by regex and empty expression clears filter' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Press & to prompt for filter regex
+    send_keys('&');
+    select(undef, undef, undef, 0.2);
+
+    my $prompt = capture();
+    like($prompt, qr/&/, 'filter prompt starts with &');
+
+    # Type "Alice" and press Enter
+    send_keys('A', 'l', 'i', 'c', 'e', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $filtered = capture();
+    like($filtered, qr/Alice/, 'Alice is visible when filtered');
+    unlike($filtered, qr/Bob/, 'Bob is hidden when filtered');
+
+    # Press & and Enter with empty expression to clear filter
+    send_keys('&', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $all = capture();
+    like($all, qr/Alice/, 'Alice visible after clearing filter');
+    like($all, qr/Bob/,   'Bob visible again after clearing filter');
 
     teardown();
 };
