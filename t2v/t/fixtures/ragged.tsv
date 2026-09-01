@@ -1,0 +1,5 @@
+id	name	value	extra
+1	alpha	10
+2	beta	20	bonus_field	extra_field
+3	gamma
+4	delta	40	bonus_only

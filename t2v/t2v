@@ -1,0 +1,826 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Getopt::Long qw(:config no_auto_abbrev no_ignore_case);
+use Term::ReadKey;
+use List::Util qw(min max);
+use POSIX qw(ttyname);
+
+# ------ Constants ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+use constant MAX_ANALYSIS_ROWS => 10_000;
+use constant H_SCROLL_STEP     => 10;
+
+# ANSI codes
+my $BOLD      = "\e[1m";      # header / col-number band: bold only
+my $GREEN_BAR = "\e[42;30m";  # status bar: green bg, black fg
+my $RESET     = "\e[0m";
+my $CLEAR_EOL = "\e[K";
+my $HOME      = "\e[H";
+
+# ------ Usage ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+sub usage {
+    print STDERR <<"END";
+Usage: t2v [-d DELIM] [FILE]
+       cat FILE | t2v [-d DELIM]
+
+A tab-delimited file viewer with fixed-width columns and horizontal scrolling.
+
+Options:
+  -d DELIM     Field delimiter (default: tab)
+  -N           Show line numbers
+  -h, --help   Show this help
+
+Keys:
+  Up/Down      Scroll one row
+  Left/Right   Scroll 10 characters
+  PgUp/PgDn   Scroll one page
+  Space        Scroll one page (forward)
+  g/Home       Jump to first row
+  G/End        Jump to last row
+  /            Search Perl regex
+  n            Next search match
+  p            Previous search match
+  1            Toggle column numbers (1-based)
+  0            Toggle column numbers (0-based)
+  -N           Toggle line numbers
+  ?            Show keybinding help
+  q            Quit
+END
+    exit 1;
+}
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# PURE FUNCTIONS --- no terminal I/O, testable in isolation
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Clamp $val to [$lo, $hi].
+sub clamp {
+    my ($val, $lo, $hi) = @_;
+    return $lo if $val < $lo;
+    return $hi if $val > $hi;
+    return $val;
+}
+
+# Format a single cell into a fixed-width byte string.
+# Long values are truncated with '>'; short values are padded.
+# Numeric columns are right-aligned; text columns are left-aligned.
+sub format_cell {
+    my ($val, $width, $is_numeric) = @_;
+    $val //= '';
+    if (length($val) > $width) {
+        $val = substr($val, 0, $width - 1) . '>';
+    }
+    return $is_numeric
+        ? sprintf("%${width}s",  $val)   # right-align
+        : sprintf("%-${width}s", $val);  # left-align
+}
+
+# Format a line number prefix for a row.
+# $row_idx   : 0-based data row index, or undef for header/colnum rows
+# $total_rows: total number of data rows
+# Returns string of length length($total_rows) + 1
+sub format_line_num {
+    my ($row_idx, $total_rows) = @_;
+    my $width = length($total_rows // 1);
+    if (defined $row_idx) {
+        return sprintf("%${width}d ", $row_idx + 1);
+    } else {
+        return ' ' x ($width + 1);
+    }
+}
+
+# Format reverse yellow prompt line for line-number option toggle
+sub format_option_prompt {
+    my ($show_line_nums, $term_cols) = @_;
+    my $REVERSE_YELLOW = "\e[7;33m";
+    my $RESET          = "\e[0m";
+    my $msg = $show_line_nums
+        ? "Don't use line numbers  (press RETURN)"
+        : "Constantly display line numbers  (press RETURN)";
+    if (length($msg) > $term_cols) {
+        $msg = substr($msg, 0, $term_cols);
+    } else {
+        $msg .= ' ' x ($term_cols - length($msg));
+    }
+    return $REVERSE_YELLOW . $msg . $RESET;
+}
+
+# Search data rows cell-by-cell for regex match.
+# $rows_ref : arrayref of data row arrayrefs
+# $n_cols   : number of columns
+# $regex    : compiled regex object (qr//)
+# Returns arrayref of [row_idx, col_idx] tuples.
+sub find_matches {
+    my ($rows_ref, $n_cols, $regex) = @_;
+    my @matches;
+    return \@matches unless defined $regex && @$rows_ref;
+    for my $ri (0 .. $#$rows_ref) {
+        my $row = $rows_ref->[$ri];
+        for my $ci (0 .. $n_cols - 1) {
+            my $val = $row->[$ci] // '';
+            if ($val =~ $regex) {
+                push @matches, [$ri, $ci];
+            }
+        }
+    }
+    return \@matches;
+}
+
+# Find index in $matches_ref relative to ($curr_row, $curr_col).
+# $direction: +1 for forward/next, -1 for backward/prev
+# Returns ($match_array_index, $wrapped_flag)
+sub find_next_match_index {
+    my ($matches_ref, $curr_row, $curr_col, $direction) = @_;
+    return (undef, 0) unless defined $matches_ref && @$matches_ref;
+    $direction //= 1;
+
+    if ($direction > 0) {
+        for my $i (0 .. $#$matches_ref) {
+            my ($r, $c) = @{$matches_ref->[$i]};
+            if ($r > $curr_row || ($r == $curr_row && $c > $curr_col)) {
+                return ($i, 0);
+            }
+        }
+        # Wrap to start
+        return (0, 1);
+    } else {
+        for (my $i = $#$matches_ref; $i >= 0; $i--) {
+            my ($r, $c) = @{$matches_ref->[$i]};
+            if ($r < $curr_row || ($r == $curr_row && $c < $curr_col)) {
+                return ($i, 0);
+            }
+        }
+        # Wrap to end
+        return ($#$matches_ref, 1);
+    }
+}
+
+# Build and clip a data row display line, applying cell match highlights.
+# $fields_ref     : arrayref of field values
+# $col_widths_ref : arrayref of column widths
+# $is_numeric_ref : arrayref of numeric flags
+# $h_offset       : horizontal offset
+# $width          : viewport content width
+# $row_idx        : data row index (0-based)
+# $search_regex   : compiled regex (qr//) or undef
+# $active_match   : [active_row_idx, active_col_idx] or undef
+# Returns clipped display string (with ANSI highlight escape codes if matching).
+sub render_clipped_row {
+    my ($fields_ref, $col_widths_ref, $is_numeric_ref, $h_offset, $width, $row_idx, $search_regex, $active_match) = @_;
+
+    my $output       = '';
+    my $printed_len  = 0;
+    my $curr_pos     = 0;
+    my $active_row   = defined $active_match ? $active_match->[0] : -1;
+    my $active_col   = defined $active_match ? $active_match->[1] : -1;
+
+    for my $ci (0 .. $#$col_widths_ref) {
+        last if $printed_len >= $width;
+
+        my $col_w = $col_widths_ref->[$ci];
+        my $val   = $fields_ref->[$ci] // '';
+        my $cell  = format_cell($val, $col_w, $is_numeric_ref->[$ci]);
+
+        # Cell spans logical positions [$curr_pos, $curr_pos + $col_w - 1]
+        my $cell_start = $curr_pos;
+        my $cell_end   = $curr_pos + $col_w - 1;
+
+        # Check overlap with viewport [$h_offset, $h_offset + $width - 1]
+        my $v_start = max($cell_start, $h_offset);
+        my $v_end   = min($cell_end, $h_offset + $width - 1);
+
+        if ($v_start <= $v_end) {
+            my $cell_vis = substr($cell, $v_start - $cell_start, $v_end - $v_start + 1);
+
+            if (defined $search_regex && $val ne '' && $val =~ $search_regex) {
+                if ($row_idx == $active_row && $ci == $active_col) {
+                    $output .= "\e[42;30m$cell_vis\e[0m";  # active: black on green bg
+                } else {
+                    $output .= "\e[32m$cell_vis\e[0m";     # other match: green text
+                }
+            } else {
+                $output .= $cell_vis;
+            }
+            $printed_len += length($cell_vis);
+        }
+
+        $curr_pos += $col_w;
+
+        # Separator space after column
+        if ($ci < $#$col_widths_ref) {
+            my $sep_pos = $curr_pos;
+            if ($sep_pos >= $h_offset && $printed_len < $width) {
+                $output .= ' ';
+                $printed_len++;
+            }
+            $curr_pos++;
+        }
+    }
+
+    # Pad remaining width with spaces
+    if ($printed_len < $width) {
+        $output .= ' ' x ($width - $printed_len);
+    }
+
+    return $output;
+}
+
+# Compute horizontal scroll offset for a target column during search.
+# Returns 0 if the entire field fits in viewport at offset 0;
+# otherwise centers the field within viewport content width.
+sub compute_search_h_offset {
+    my ($col_start, $col_w, $content_w, $max_h) = @_;
+    my $col_end = $col_start + $col_w - 1;
+    if ($col_end < $content_w) {
+        return 0;
+    }
+    my $target_h = $col_start - int(($content_w - $col_w) / 2);
+    return clamp($target_h, 0, $max_h);
+}
+
+# Build the full (unclipped) display string for one row of cells.
+# $fields_ref     : arrayref of field values (already padded to n_cols length)
+# $col_widths_ref : arrayref of per-column widths
+# $is_numeric_ref : arrayref of per-column numeric flags
+sub build_row_line {
+    my ($fields_ref, $col_widths_ref, $is_numeric_ref) = @_;
+    my @cells;
+    for my $ci (0 .. $#$col_widths_ref) {
+        push @cells, format_cell(
+            $fields_ref->[$ci],
+            $col_widths_ref->[$ci],
+            $is_numeric_ref->[$ci],
+        );
+    }
+    return join(' ', @cells);
+}
+
+# Build the full display string for the column-number row.
+# Alignment matches each column's alignment (left for text, right for numeric).
+# $base_idx: starting column index (default: 1)
+sub build_colnum_line {
+    my ($col_widths_ref, $is_numeric_ref, $base_idx) = @_;
+    $base_idx //= 1;
+    $is_numeric_ref //= [(1) x scalar(@$col_widths_ref)];
+    my @cells;
+    for my $ci (0 .. $#$col_widths_ref) {
+        push @cells, format_cell($ci + $base_idx, $col_widths_ref->[$ci], $is_numeric_ref->[$ci]);
+    }
+    return join(' ', @cells);
+}
+
+# Clip a content string at $h_offset and pad/truncate to exactly $width chars.
+sub clip_content {
+    my ($content, $h_offset, $width) = @_;
+    my $len     = length($content);
+    my $visible = ($h_offset < $len) ? substr($content, $h_offset) : '';
+    my $vlen    = length($visible);
+    if ($vlen < $width) {
+        $visible .= ' ' x ($width - $vlen);
+    } elsif ($vlen > $width) {
+        $visible = substr($visible, 0, $width);
+    }
+    return $visible;
+}
+
+# Compute per-column maximum byte widths from a set of rows.
+# Also enforces minimum width equal to the header value width and column-number width.
+# $rows_ref   : arrayref of row arrayrefs (data rows only, no header)
+# $header_ref : arrayref of header field values
+# $n_cols     : number of columns
+# $limit      : max rows to scan (undef = all)
+# Returns arrayref of widths.
+sub compute_col_widths {
+    my ($rows_ref, $header_ref, $n_cols, $limit) = @_;
+    my @widths;
+    for my $ci (0 .. $n_cols - 1) {
+        my $col_num_w = length($ci + 1);
+        $widths[$ci] = max(length($header_ref->[$ci] // ''), $col_num_w);
+    }
+    my $max_ri = defined $limit ? min($limit - 1, $#$rows_ref) : $#$rows_ref;
+    for my $ri (0 .. $max_ri) {
+        my $row = $rows_ref->[$ri];
+        for my $ci (0 .. $n_cols - 1) {
+            my $len = length($row->[$ci] // '');
+            $widths[$ci] = $len if $len > $widths[$ci];
+        }
+    }
+    return \@widths;
+}
+
+# Determine which columns are numeric.
+# A column is numeric if every non-empty value in the scanned rows matches a
+# number pattern (int, float, or scientific notation, with optional sign).
+# $rows_ref : arrayref of row arrayrefs (data rows only)
+# $n_cols   : number of columns
+# $limit    : max rows to scan (undef = all)
+# Returns arrayref of booleans (1 = numeric, 0 = text).
+sub detect_numeric {
+    my ($rows_ref, $n_cols, $limit) = @_;
+    my @flags = (1) x $n_cols;
+    my $max_ri = defined $limit ? min($limit - 1, $#$rows_ref) : $#$rows_ref;
+    for my $ri (0 .. $max_ri) {
+        my $row = $rows_ref->[$ri];
+        for my $ci (0 .. $n_cols - 1) {
+            next unless $flags[$ci];
+            my $val = $row->[$ci] // '';
+            next if $val eq '';
+            $flags[$ci] = 0
+                unless $val =~ /^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
+        }
+    }
+    return \@flags;
+}
+
+# Compute total logical line width (all columns + separators).
+sub total_line_width {
+    my ($col_widths_ref) = @_;
+    my $w = 0;
+    $w += $_ for @$col_widths_ref;
+    $w += max(0, scalar(@$col_widths_ref) - 1);  # spaces between cols
+    return $w;
+}
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# MAIN PROGRAM --- only runs when executed directly, not when required by tests
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+unless (caller()) {
+    _main();
+}
+
+sub _main {
+    $| = 1;  # autoflush STDOUT so every frame/status line prints immediately
+
+    # ------ Argument parsing ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    my ($opt_delim, $opt_help, $opt_line_nums) = ("\t", 0, 0);
+    GetOptions(
+        'd=s'        => \$opt_delim,
+        'N|numbers!' => \$opt_line_nums,
+        'help|h'     => \$opt_help,
+    ) or usage();
+    usage() if $opt_help;
+
+    # ------ Load data ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    my ($filename, @all_rows);
+
+    if (!-t STDIN) {
+        # Data arrives on STDIN (pipe); reopen STDIN from /dev/tty for keyboard.
+        $filename = '<stdin>';
+        while (my $line = <STDIN>) {
+            chomp $line;
+            push @all_rows, [split /\Q$opt_delim\E/, $line, -1];
+        }
+        # Reopen STDIN for keyboard input.
+        # Try /dev/tty first; if that fails (e.g. Device not configured in subshell pipelines),
+        # fallback to the actual tty device path of STDOUT or STDERR.
+        my $reopened = open(STDIN, '<', '/dev/tty');
+        if (!$reopened) {
+            my $tty = (-t STDOUT) ? POSIX::ttyname(fileno(\*STDOUT))
+                    : (-t STDERR) ? POSIX::ttyname(fileno(\*STDERR))
+                    : undef;
+            $reopened = open(STDIN, '<', $tty) if defined $tty;
+        }
+        die "t2v: Cannot open terminal for interactive input: $!\n" unless $reopened;
+    } elsif (@ARGV) {
+        $filename = $ARGV[0];
+        open(my $fh, '<', $filename) or die "t2v: Cannot open '$filename': $!\n";
+        while (my $line = <$fh>) {
+            chomp $line;
+            push @all_rows, [split /\Q$opt_delim\E/, $line, -1];
+        }
+        close $fh;
+    } else {
+        usage();
+    }
+
+    if (@all_rows == 0) {
+        die "t2v: empty input\n";
+    }
+
+    # ------ Separate header + data ------------------------------------------------------------------------------------------------------------------------------------------------
+    my $header = $all_rows[0];
+    my @data   = @all_rows[1 .. $#all_rows];
+    my $n_rows = scalar @data;
+
+    # Determine column count (max across header + all rows)
+    my $n_cols = scalar @$header;
+    for my $row (@data) {
+        $n_cols = scalar(@$row) if scalar(@$row) > $n_cols;
+    }
+    push @$header, '' while @$header < $n_cols;  # pad header
+
+    # ------ Column analysis ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    my $col_widths_ref = compute_col_widths(\@data, $header, $n_cols, MAX_ANALYSIS_ROWS);
+    my $is_numeric_ref = detect_numeric(\@data, $n_cols, MAX_ANALYSIS_ROWS);
+
+    # ------ Terminal size ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    my ($term_rows, $term_cols) = _get_term_size();
+
+    # ------ Terminal setup + cleanup ------------------------------------------------------------------------------------------------------------------------------------------
+    my $cleaned_up = 0;
+    my $cleanup = sub {
+        return if $cleaned_up++;
+        ReadMode('restore');
+        print "\e[?25h\e[?1049l";  # show cursor, restore screen
+    };
+
+    $SIG{INT}  = sub { $cleanup->(); exit 0 };
+    $SIG{TERM} = sub { $cleanup->(); exit 0 };
+    my $winch_flag = 0;
+    $SIG{WINCH} = sub { $winch_flag = 1 };
+
+    print "\e[?1049h\e[?25l";  # alt screen, hide cursor
+    ReadMode('cbreak');
+
+    # ------ Scroll & Search state -----------------------------------------------------------------------------------------------------------------------------------------------------
+    my $v_offset                = 0;
+    my $h_offset                = 0;
+    my $show_help               = 0;
+    my $show_line_nums          = $opt_line_nums;
+    my $show_col_nums           = 1;
+    my $col_base_idx            = 1;
+    my $pending_line_num_toggle = 0;
+    my $pending_dash             = 0;
+
+    my $search_mode      = 0;
+    my $search_query     = '';
+    my $search_regex     = undef;
+    my @search_matches   = ();
+    my $search_match_idx = undef;
+    my $status_msg       = undef;
+
+    # Rows available for data (total rows minus non-data rows: header, status bar, and optional colnum row)
+    my $visible_data_rows = sub { $term_rows - ($show_col_nums ? 3 : 2) };
+    my $max_v = sub { max(0, $n_rows - $visible_data_rows->()) };
+    my $max_h = sub {
+        my $avail = $show_line_nums ? max(1, $term_cols - (length($n_rows) + 1)) : $term_cols;
+        max(0, total_line_width($col_widths_ref) - $avail);
+    };
+
+    my $execute_search = sub {
+        my ($pattern) = @_;
+        $status_msg = undef;
+        if (!defined $pattern || $pattern eq '') {
+            $search_regex     = undef;
+            @search_matches   = ();
+            $search_match_idx = undef;
+            return;
+        }
+
+        my $compiled;
+        eval {
+            local $SIG{__DIE__} = sub {};
+            $compiled = qr/$pattern/;
+        };
+        if ($@ || !$compiled) {
+            $status_msg       = "Invalid regex: $pattern";
+            $search_regex     = undef;
+            @search_matches   = ();
+            $search_match_idx = undef;
+            return;
+        }
+
+        $search_regex   = $compiled;
+        @search_matches = @{ find_matches(\@data, $n_cols, $search_regex) };
+
+        if (!@search_matches) {
+            $status_msg       = "Pattern not found: $pattern";
+            $search_match_idx = undef;
+            return;
+        }
+
+        my ($idx, $wrapped) = find_next_match_index(\@search_matches, $v_offset - 1, 999999, 1);
+        $search_match_idx = $idx // 0;
+        my ($r, $c)       = @{ $search_matches[$search_match_idx] };
+
+        if ($wrapped) {
+            $status_msg = "Search wrapped to top";
+        }
+
+        my $vdr = $visible_data_rows->();
+        if ($r < $v_offset || $r >= $v_offset + $vdr) {
+            $v_offset = clamp($r, 0, $max_v->());
+        }
+
+        my $col_start = 0;
+        for my $ci (0 .. $c - 1) {
+            $col_start += $col_widths_ref->[$ci] + 1;
+        }
+        my $col_w     = $col_widths_ref->[$c];
+        my $ln_len    = $show_line_nums ? (length($n_rows) + 1) : 0;
+        my $content_w = max(1, $term_cols - $ln_len);
+        $h_offset     = compute_search_h_offset($col_start, $col_w, $content_w, $max_h->());
+    };
+
+    my $navigate_match = sub {
+        my ($dir) = @_;
+        return unless defined $search_regex && @search_matches;
+        $status_msg = undef;
+
+        my ($curr_r, $curr_c) = (defined $search_match_idx && $search_match_idx < @search_matches)
+            ? @{ $search_matches[$search_match_idx] }
+            : ($v_offset, -1);
+
+        my ($idx, $wrapped) = find_next_match_index(\@search_matches, $curr_r, $curr_c, $dir);
+        return unless defined $idx;
+
+        $search_match_idx = $idx;
+        my ($r, $c)       = @{ $search_matches[$search_match_idx] };
+
+        if ($wrapped) {
+            $status_msg = ($dir > 0) ? "Search wrapped to top" : "Search wrapped to bottom";
+        }
+
+        my $vdr = $visible_data_rows->();
+        if ($r < $v_offset || $r >= $v_offset + $vdr) {
+            $v_offset = clamp($r, 0, $max_v->());
+        }
+
+        my $col_start = 0;
+        for my $ci (0 .. $c - 1) {
+            $col_start += $col_widths_ref->[$ci] + 1;
+        }
+        my $col_w     = $col_widths_ref->[$c];
+        my $ln_len    = $show_line_nums ? (length($n_rows) + 1) : 0;
+        my $content_w = max(1, $term_cols - $ln_len);
+        $h_offset     = compute_search_h_offset($col_start, $col_w, $content_w, $max_h->());
+    };
+
+    # ------ Inner render helpers ------------------------------------------------------------------------------------------------------------------------------------------------------
+    my $draw_screen = sub {
+        my $vdr       = $visible_data_rows->();
+        my $output    = $HOME;
+        my $ln_len    = $show_line_nums ? (length($n_rows) + 1) : 0;
+        my $content_w = max(1, $term_cols - $ln_len);
+        my $header_ln = $show_line_nums ? format_line_num(undef, $n_rows) : '';
+
+        # Line 1: column numbers (bold) if enabled
+        if ($show_col_nums) {
+            my $colnum_raw     = build_colnum_line($col_widths_ref, $is_numeric_ref, $col_base_idx);
+            my $colnum_clipped = clip_content($colnum_raw, $h_offset, $content_w);
+            $output .= $BOLD . $header_ln . $colnum_clipped . $RESET . $CLEAR_EOL . "\n";
+        }
+
+        # Line 2: header (bold)
+        my $header_raw     = build_row_line($header, $col_widths_ref, $is_numeric_ref);
+        my $header_clipped = clip_content($header_raw, $h_offset, $content_w);
+        $output .= $BOLD . $header_ln . $header_clipped . $RESET . $CLEAR_EOL . "\n";
+
+        # Data rows
+        my $active_match_tuple = (defined $search_match_idx && @search_matches)
+            ? $search_matches[$search_match_idx]
+            : undef;
+
+        for my $ri ($v_offset .. $v_offset + $vdr - 1) {
+            if ($ri < $n_rows) {
+                my $row        = $data[$ri];
+                my @fields     = map { $row->[$_] // '' } (0 .. $n_cols - 1);
+                my $row_prefix = $show_line_nums ? format_line_num($ri, $n_rows) : '';
+                my $clipped    = render_clipped_row(
+                    \@fields, $col_widths_ref, $is_numeric_ref,
+                    $h_offset, $content_w, $ri, $search_regex, $active_match_tuple
+                );
+                $output .= $BOLD . $row_prefix . $RESET . $clipped . $CLEAR_EOL . "\n";
+            } else {
+                $output .= ' ' x $term_cols . $CLEAR_EOL . "\n";
+            }
+        }
+
+        # Status bar or search prompt or option prompt
+        if ($search_mode) {
+            my $prompt = "/$search_query";
+            if (length($prompt) > $term_cols) {
+                $prompt = substr($prompt, 0, $term_cols);
+            } else {
+                $prompt .= ' ' x ($term_cols - length($prompt));
+            }
+            $output .= $GREEN_BAR . $prompt . $RESET;
+        } elsif (defined $status_msg) {
+            my $is_err = $status_msg =~ /^(?:Error|Invalid|Pattern not found)/i;
+            my $style  = $is_err ? "\e[7;31m" : "\e[7;33m";
+            my $msg    = $status_msg;
+            if (length($msg) > $term_cols) {
+                $msg = substr($msg, 0, $term_cols);
+            } else {
+                $msg .= ' ' x ($term_cols - length($msg));
+            }
+            $output .= $style . $msg . $RESET;
+        } elsif ($pending_line_num_toggle) {
+            $output .= format_option_prompt($show_line_nums, $term_cols);
+        } elsif ($pending_dash) {
+            my $dash_msg = '-';
+            my $padded   = $dash_msg . ' ' x max(0, $term_cols - length($dash_msg));
+            $output .= "\e[7;33m" . $padded . "\e[0m";
+        } else {
+            my $first_r = $n_rows > 0 ? $v_offset + 1                         : 0;
+            my $last_r  = $n_rows > 0 ? min($v_offset + $vdr, $n_rows)        : 0;
+            my $status  = sprintf(
+                " Rows %d-%d of %d | Col offset: %d | %s",
+                $first_r, $last_r, $n_rows, $h_offset, $filename
+            );
+            if (length($status) > $term_cols) {
+                $status = substr($status, 0, $term_cols);
+            } else {
+                $status .= ' ' x ($term_cols - length($status));
+            }
+            $output .= $GREEN_BAR . $status . $RESET;
+        }
+
+        print $output;
+    };
+
+    my $draw_help = sub {
+        my @lines = (
+            '+-----------------------------+',
+            '|        KEYBINDINGS          |',
+            '+-----------------------------+',
+            '|  Up / Down    Scroll rows   |',
+            '|  Left / Right Scroll 10ch  |',
+            '|  PgUp / PgDn  Scroll page  |',
+            '|  Space        Scroll page  |',
+            '|  g / Home     First row     |',
+            '|  G / End      Last row      |',
+            '|  /            Search regex  |',
+            '|  n            Next match    |',
+            '|  p            Prev match    |',
+            '|  1            1-based cols  |',
+            '|  0            0-based cols  |',
+            '|  -N           Line numbers  |',
+            '|  q            Quit          |',
+            '|  ?            Toggle help   |',
+            '|                             |',
+            '|  Press any key to dismiss   |',
+            '+-----------------------------+',
+        );
+        my $box_w   = length($lines[0]);
+        my $box_h   = scalar @lines;
+        my $start_r = int(($term_rows - $box_h) / 2);
+        my $start_c = int(($term_cols - $box_w) / 2);
+        for my $i (0 .. $box_h - 1) {
+            printf "\e[%d;%dH%s%s",
+                $start_r + $i + 1, $start_c + 1,
+                $BOLD, $lines[$i];
+        }
+        print $RESET;
+    };
+
+    # ------ Key reader ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    my $read_key = sub {
+        my $ch = ReadKey(0);
+        return $ch unless defined $ch && $ch eq "\e";
+        my $seq = '';
+        while (1) {
+            my $c = ReadKey(-1);
+            last unless defined $c;
+            $seq .= $c;
+            last if $c =~ /[A-Za-z~]/;
+        }
+        return "\e$seq";
+    };
+
+    # ------ Main loop ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    $draw_screen->();
+
+    while (1) {
+        if ($winch_flag) {
+            $winch_flag = 0;
+            ($term_rows, $term_cols) = _get_term_size();
+            $v_offset = clamp($v_offset, 0, $max_v->());
+            $h_offset = clamp($h_offset, 0, $max_h->());
+            $draw_screen->();
+        }
+
+        my $key = $read_key->();
+        next unless defined $key;
+
+        # Any key dismisses help overlay
+        if ($show_help) {
+            $show_help = 0;
+            $draw_screen->();
+            next;
+        }
+
+        if ($search_mode) {
+            if ($key eq "\e" || $key eq "\x03") {
+                $search_mode  = 0;
+                $search_query = '';
+                $draw_screen->();
+                next;
+            } elsif ($key eq "\r" || $key eq "\n" || $key eq "\eOM") {
+                $search_mode = 0;
+                $execute_search->($search_query);
+                $draw_screen->();
+                next;
+            } elsif ($key eq "\x7f" || $key eq "\x08" || $key eq "\e[3~") {
+                substr($search_query, -1, 1, '') if length($search_query) > 0;
+                $draw_screen->();
+                next;
+            } elsif (length($key) == 1 && ord($key) >= 32 && ord($key) <= 126) {
+                $search_query .= $key;
+                $draw_screen->();
+                next;
+            }
+            next;
+        }
+
+        $status_msg = undef;
+
+        if ($pending_line_num_toggle) {
+            $pending_line_num_toggle = 0;
+            if ($key eq "\r" || $key eq "\n" || $key eq "\eOM") {
+                $show_line_nums = !$show_line_nums;
+                $h_offset = clamp($h_offset, 0, $max_h->());
+                $draw_screen->();
+                next;
+            }
+        }
+
+        if ($pending_dash) {
+            $pending_dash = 0;
+            if ($key eq 'N' || $key eq 'n') {
+                $pending_line_num_toggle = 1;
+                $draw_screen->();
+                next;
+            }
+        }
+
+        if ($key eq 'q') {
+            $cleanup->();
+            exit 0;
+        } elsif ($key eq '?') {
+            $show_help = 1;
+            $draw_help->();
+        } elsif ($key eq '/') {
+            $search_mode  = 1;
+            $search_query = '';
+            $draw_screen->();
+        } elsif ($key eq 'n') {
+            $navigate_match->(1);
+            $draw_screen->();
+        } elsif ($key eq 'p') {
+            $navigate_match->(-1);
+            $draw_screen->();
+        } elsif ($key eq '1') {                       # Toggle 1-based column numbers
+            if ($show_col_nums && $col_base_idx == 1) {
+                $show_col_nums = 0;
+            } else {
+                $show_col_nums = 1;
+                $col_base_idx  = 1;
+            }
+            $v_offset = clamp($v_offset, 0, $max_v->());
+            $draw_screen->();
+        } elsif ($key eq '0') {                       # Toggle 0-based column numbers
+            if ($show_col_nums && $col_base_idx == 0) {
+                $show_col_nums = 0;
+            } else {
+                $show_col_nums = 1;
+                $col_base_idx  = 0;
+            }
+            $v_offset = clamp($v_offset, 0, $max_v->());
+            $draw_screen->();
+        } elsif ($key eq 'N' || $key eq 'n' || $key eq '-N' || $key eq '-n') {  # Toggle line numbers prompt
+            $pending_line_num_toggle = 1;
+            $draw_screen->();
+        } elsif ($key eq '-') {
+            $pending_dash = 1;
+            $draw_screen->();
+        } elsif ($key eq "\e[A") {                    # Up
+            $v_offset = clamp($v_offset - 1, 0, $max_v->());
+            $draw_screen->();
+        } elsif ($key eq "\e[B") {                    # Down
+            $v_offset = clamp($v_offset + 1, 0, $max_v->());
+            $draw_screen->();
+        } elsif ($key eq "\e[D") {                    # Left
+            $h_offset = clamp($h_offset - H_SCROLL_STEP, 0, $max_h->());
+            $draw_screen->();
+        } elsif ($key eq "\e[C") {                    # Right
+            $h_offset = clamp($h_offset + H_SCROLL_STEP, 0, $max_h->());
+            $draw_screen->();
+        } elsif ($key eq "\e[5~") {                   # PgUp
+            $v_offset = clamp($v_offset - $visible_data_rows->(), 0, $max_v->());
+            $draw_screen->();
+        } elsif ($key eq "\e[6~" || $key eq ' ') {    # PgDn or Space
+            $v_offset = clamp($v_offset + $visible_data_rows->(), 0, $max_v->());
+            $draw_screen->();
+        } elsif ($key eq "\e[H" || $key eq "\e[1~" || $key eq 'g') { # Home / g
+            $v_offset = 0;
+            $draw_screen->();
+        } elsif ($key eq "\e[F" || $key eq "\e[4~" || $key eq 'G') { # End / G
+            $v_offset = $max_v->();
+            $draw_screen->();
+        }
+        # Ignore all other keys
+    }
+}
+
+sub _get_term_size {
+    my @s;
+    eval {
+        local $SIG{__WARN__} = sub {};
+        @s = GetTerminalSize(\*STDOUT) if -t STDOUT;
+        @s = GetTerminalSize(\*STDIN)  if !@s && -t STDIN;
+    };
+    return ($s[1] || 24, $s[0] || 80);  # (rows, cols)
+}
+
+1; # allow `do './t2v'` in tests

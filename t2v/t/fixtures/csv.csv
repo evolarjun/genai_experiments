@@ -1,0 +1,5 @@
+product,price,quantity,category
+Widget A,9.99,100,hardware
+Widget B,24.50,50,software
+Gadget X,149.00,5,hardware
+Service Y,0.00,999,software
