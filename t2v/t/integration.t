@@ -705,6 +705,83 @@ subtest 'search in CSV mode matches unquoted clean data' => sub {
     teardown();
 };
 
+subtest 'w key prompt and column number display' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Initially column numbers are hidden
+    my $initial = capture();
+    unlike($initial, qr/1\s+2\s+3/, 'column numbers initially hidden');
+
+    # Press w to open width prompt
+    send_keys('w');
+    select(undef, undef, undef, 0.05);
+
+    my $prompt = capture();
+    like($prompt, qr/w\s*/, 'w prompt active on status bar');
+    like($prompt, qr/1\s+2\s+3/, '1-based column numbers temporarily shown during prompt');
+
+    # Cancel prompt with Esc
+    send_keys('Escape');
+    select(undef, undef, undef, 0.05);
+
+    my $cancelled = capture();
+    unlike($cancelled, qr/1\s+2\s+3/, 'column numbers restored to hidden after Esc');
+
+    teardown();
+};
+
+subtest 'w key shrinks column to header length and toggles back' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # In basic.tsv: col 1 is 'name' (longest 'Grace'=5), col 2 is 'age' (3)
+    # Shrink col 1 to header length ('name'=4)
+    send_keys('w', '1', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $shrunk = capture();
+    # Grace in col 1 should be truncated with > -> 'Gra>'
+    like($shrunk, qr/Gra>/, 'col 1 truncated to 4 chars');
+
+    # Toggle col 1 back to full width
+    send_keys('w', '1', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $restored = capture();
+    like($restored, qr/Grace/, 'col 1 restored to full width');
+
+    teardown();
+};
+
+subtest 'w key custom width and hide column' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Hide col 1 with 1:0
+    send_keys('w', '1', ':', '0', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $hidden = capture();
+    like($hidden, qr/\|\s+age/, 'col 1 header hidden with |');
+    like($hidden, qr/\|\s+30/,  'col 1 data hidden with |');
+
+    # Set col 1 custom width 10
+    send_keys('w', '1', ':', '1', '0', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $custom = capture();
+    like($custom, qr/name\s{7}age/, 'col 1 header expanded with custom width 10');
+    like($custom, qr/Alice\s{7}30/, 'col 1 data row expanded with custom width 10');
+
+    # Reset all columns with empty input
+    send_keys('w', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $reset = capture();
+    like($reset, qr/name\s{2}age/, 'col 1 header reset to original width');
+    like($reset, qr/Alice\s+30/,    'col 1 data row reset to original width');
+
+    teardown();
+};
+
 done_testing();
 
 

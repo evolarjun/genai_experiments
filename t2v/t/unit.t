@@ -711,6 +711,113 @@ subtest 'parse_csv_line --- unclosed quote at EOF' => sub {
     is_deeply($fields, ['1', 'Unclosed quote field'], 'gracefully handles unclosed quote at EOF without crashing');
 };
 
+# ------------------------------
+# adjust_column_widths & hidden column rendering Tests
+# ------------------------------
+
+subtest 'adjust_column_widths --- empty resets all columns' => sub {
+    my $orig   = [10, 20, 30];
+    my $curr   = [5, 1, 10];
+    my $hidden = [0, 1, 0];
+    my $header = ['name', 'age', 'score'];
+
+    my ($ok, $msg) = adjust_column_widths($orig, $curr, $hidden, $header, '', 3);
+    ok($ok, 'empty input succeeds');
+    is_deeply($curr, [10, 20, 30], 'all column widths restored');
+    is_deeply($hidden, [0, 0, 0], 'all hidden flags cleared');
+};
+
+subtest 'adjust_column_widths --- shrink to header length and toggle' => sub {
+    my $orig   = [10, 20, 30];
+    my $curr   = [10, 20, 30];
+    my $hidden = [0, 0, 0];
+    my $header = ['colname', 'a', 'very_long_header_name'];
+
+    # Shrink column 1 (header 'colname' = 7 chars)
+    my ($ok1) = adjust_column_widths($orig, $curr, $hidden, $header, '1', 3);
+    ok($ok1, 'col 1 shrunk');
+    is($curr->[0], 7, 'col 1 width is 7 (length of header)');
+
+    # Toggle column 1 back to original width
+    my ($ok2) = adjust_column_widths($orig, $curr, $hidden, $header, '1', 3);
+    ok($ok2, 'col 1 toggled');
+    is($curr->[0], 10, 'col 1 width restored to 10');
+
+    # Header shorter than 1 char defaults to min 1
+    my $empty_header = ['', '', ''];
+    adjust_column_widths($orig, $curr, $hidden, $empty_header, '1', 3);
+    is($curr->[0], 1, 'empty header shrinks to min width 1');
+};
+
+subtest 'adjust_column_widths --- custom width' => sub {
+    my $orig   = [10, 20, 30];
+    my $curr   = [10, 20, 30];
+    my $hidden = [0, 0, 0];
+    my $header = ['col1', 'col2', 'col3'];
+
+    my ($ok) = adjust_column_widths($orig, $curr, $hidden, $header, '2:15', 3);
+    ok($ok, 'col 2 custom width set');
+    is($curr->[1], 15, 'col 2 width is 15');
+    is($hidden->[1], 0, 'col 2 not hidden');
+
+    # Toggle column 2 with just '2' restores original
+    adjust_column_widths($orig, $curr, $hidden, $header, '2', 3);
+    is($curr->[1], 20, 'col 2 restored to original width 20');
+};
+
+subtest 'adjust_column_widths --- hide column with :0' => sub {
+    my $orig   = [10, 20, 30];
+    my $curr   = [10, 20, 30];
+    my $hidden = [0, 0, 0];
+    my $header = ['col1', 'col2', 'col3'];
+
+    my ($ok) = adjust_column_widths($orig, $curr, $hidden, $header, '3:0', 3);
+    ok($ok, 'col 3 hidden');
+    is($curr->[2], 1, 'col 3 width set to 1 for |');
+    is($hidden->[2], 1, 'col 3 hidden flag set');
+
+    # Toggle column 3 with '3' restores original
+    adjust_column_widths($orig, $curr, $hidden, $header, '3', 3);
+    is($curr->[2], 30, 'col 3 restored to original width 30');
+    is($hidden->[2], 0, 'col 3 hidden flag cleared');
+};
+
+subtest 'adjust_column_widths --- error handling' => sub {
+    my $orig   = [10, 20];
+    my $curr   = [10, 20];
+    my $hidden = [0, 0];
+    my $header = ['col1', 'col2'];
+
+    my ($ok1, $err1) = adjust_column_widths($orig, $curr, $hidden, $header, '3', 2);
+    ok(!$ok1, 'col 3 out of bounds fails');
+
+    my ($ok2, $err2) = adjust_column_widths($orig, $curr, $hidden, $header, '0', 2);
+    ok(!$ok2, 'col 0 fails (1-based)');
+
+    my ($ok3, $err3) = adjust_column_widths($orig, $curr, $hidden, $header, 'invalid', 2);
+    ok(!$ok3, 'invalid text fails');
+};
+
+subtest 'hidden column rendering in lines' => sub {
+    my $col_widths = [5, 1, 6];
+    my $is_numeric = [0, 0, 1];
+    my $is_hidden  = [0, 1, 0];
+
+    my $colnum_line = build_colnum_line($col_widths, $is_numeric, 1, $is_hidden);
+    is($colnum_line, "1     |      3", 'hidden column rendered as | in colnum line');
+
+    my $header_line = build_row_line(['name', 'secret', 'score'], $col_widths, $is_numeric, $is_hidden);
+    is($header_line, "name  |  score", 'hidden column rendered as | in header line');
+
+    my $row_line = render_clipped_row(
+        ['Alice', 'hidden_data', '99.5'],
+        $col_widths, $is_numeric,
+        0, 20, 0, undef, undef, "\t", $is_hidden
+    );
+    is($row_line, "Alice |   99.5      ", 'hidden column rendered as | in data row');
+};
+
 done_testing();
+
 
 

@@ -276,9 +276,10 @@ sub find_next_match_index {
 # $search_regex   : compiled regex (qr//) or undef
 # $active_match   : [active_row_idx, active_col_idx] or undef
 # $opt_delim      : field delimiter string (default: "\t")
+# $is_hidden_ref  : arrayref of column hidden flags or undef
 # Returns clipped display string (with ANSI highlight escape codes if matching).
 sub render_clipped_row {
-    my ($fields_ref, $col_widths_ref, $is_numeric_ref, $h_offset, $width, $row_idx, $search_regex, $active_match, $opt_delim) = @_;
+    my ($fields_ref, $col_widths_ref, $is_numeric_ref, $h_offset, $width, $row_idx, $search_regex, $active_match, $opt_delim, $is_hidden_ref) = @_;
     $opt_delim //= "\t";
 
     my $output       = '';
@@ -328,9 +329,10 @@ sub render_clipped_row {
     for my $ci (0 .. $#$col_widths_ref) {
         last if $printed_len >= $width;
 
-        my $col_w = $col_widths_ref->[$ci];
-        my $val   = $fields_ref->[$ci] // '';
-        my $cell  = format_cell($val, $col_w, $is_numeric_ref->[$ci]);
+        my $col_w     = $col_widths_ref->[$ci];
+        my $val       = $fields_ref->[$ci] // '';
+        my $is_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
+        my $cell      = $is_hidden ? '|' : format_cell($val, $col_w, $is_numeric_ref->[$ci]);
 
         # Cell spans logical positions [$curr_pos, $curr_pos + $col_w - 1]
         my $cell_start = $curr_pos;
@@ -393,15 +395,18 @@ sub compute_search_h_offset {
 # $fields_ref     : arrayref of field values (already padded to n_cols length)
 # $col_widths_ref : arrayref of per-column widths
 # $is_numeric_ref : arrayref of per-column numeric flags
+# $is_hidden_ref  : arrayref of per-column hidden flags or undef
 sub build_row_line {
-    my ($fields_ref, $col_widths_ref, $is_numeric_ref) = @_;
+    my ($fields_ref, $col_widths_ref, $is_numeric_ref, $is_hidden_ref) = @_;
     my @cells;
     for my $ci (0 .. $#$col_widths_ref) {
-        push @cells, format_cell(
+        my $is_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
+        my $cell = $is_hidden ? '|' : format_cell(
             $fields_ref->[$ci],
             $col_widths_ref->[$ci],
             $is_numeric_ref->[$ci],
         );
+        push @cells, $cell;
     }
     return join(' ', @cells);
 }
@@ -409,15 +414,81 @@ sub build_row_line {
 # Build the full display string for the column-number row.
 # Alignment matches each column's alignment (left for text, right for numeric).
 # $base_idx: starting column index (default: 1)
+# $is_hidden_ref: arrayref of per-column hidden flags or undef
 sub build_colnum_line {
-    my ($col_widths_ref, $is_numeric_ref, $base_idx) = @_;
+    my ($col_widths_ref, $is_numeric_ref, $base_idx, $is_hidden_ref) = @_;
     $base_idx //= 1;
     $is_numeric_ref //= [(1) x scalar(@$col_widths_ref)];
     my @cells;
     for my $ci (0 .. $#$col_widths_ref) {
-        push @cells, format_cell($ci + $base_idx, $col_widths_ref->[$ci], $is_numeric_ref->[$ci]);
+        my $is_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
+        my $cell = $is_hidden ? '|' : format_cell($ci + $base_idx, $col_widths_ref->[$ci], $is_numeric_ref->[$ci]);
+        push @cells, $cell;
     }
     return join(' ', @cells);
+}
+
+# Adjust column widths based on user input string.
+# $orig_widths_ref : arrayref of original full column widths
+# $curr_widths_ref : arrayref of current column widths (modified in-place)
+# $is_hidden_ref   : arrayref of column hidden flags (0 or 1, modified in-place)
+# $header_ref      : arrayref of header strings
+# $input           : user input string ('', '<col>', '<col>:<width>', '<col>:0')
+# $n_cols          : number of columns
+# Returns ($success, $status_message)
+sub adjust_column_widths {
+    my ($orig_widths_ref, $curr_widths_ref, $is_hidden_ref, $header_ref, $input, $n_cols) = @_;
+    $input //= '';
+    $input =~ s/^\s+|\s+$//g;
+
+    # 1. Empty input resets all columns to original widths
+    if ($input eq '') {
+        for my $i (0 .. $n_cols - 1) {
+            $curr_widths_ref->[$i] = $orig_widths_ref->[$i];
+            $is_hidden_ref->[$i]   = 0;
+        }
+        return (1, "Reset all columns to original widths");
+    }
+
+    # 2. <col_num>:<width>
+    if ($input =~ /^(\d+)\s*:\s*(\d+)$/) {
+        my ($col_num, $w) = ($1, $2);
+        if ($col_num < 1 || $col_num > $n_cols) {
+            return (0, "Invalid column number: $col_num");
+        }
+        my $ci = $col_num - 1;
+        if ($w == 0) {
+            $curr_widths_ref->[$ci] = 1;
+            $is_hidden_ref->[$ci]   = 1;
+            return (1, "Hidden column $col_num");
+        } else {
+            $curr_widths_ref->[$ci] = $w;
+            $is_hidden_ref->[$ci]   = 0;
+            return (1, "Set column $col_num width to $w");
+        }
+    }
+
+    # 3. <col_num> (toggle)
+    if ($input =~ /^(\d+)$/) {
+        my $col_num = $1;
+        if ($col_num < 1 || $col_num > $n_cols) {
+            return (0, "Invalid column number: $col_num");
+        }
+        my $ci = $col_num - 1;
+        # If already modified (width != orig or hidden == 1), restore to orig
+        if ($curr_widths_ref->[$ci] != $orig_widths_ref->[$ci] || $is_hidden_ref->[$ci]) {
+            $curr_widths_ref->[$ci] = $orig_widths_ref->[$ci];
+            $is_hidden_ref->[$ci]   = 0;
+            return (1, "Restored column $col_num to original width");
+        } else {
+            my $hw = length($header_ref->[$ci] // '');
+            $curr_widths_ref->[$ci] = max(1, $hw);
+            $is_hidden_ref->[$ci]   = 0;
+            return (1, "Shrunk column $col_num to header width");
+        }
+    }
+
+    return (0, "Invalid column width specification: $input");
 }
 
 # Clip a content string at $h_offset and pad/truncate to exactly $width chars.
@@ -815,8 +886,10 @@ sub _main {
     push @$header, '' while @$header < $n_cols;  # pad header
 
     # ------ Column analysis ------------------------------
-    my $col_widths_ref = compute_col_widths(\@data, $header, $n_cols, MAX_ANALYSIS_ROWS);
-    my $is_numeric_ref = detect_numeric(\@data, $n_cols, MAX_ANALYSIS_ROWS);
+    my $col_widths_ref      = compute_col_widths(\@data, $header, $n_cols, MAX_ANALYSIS_ROWS);
+    my $orig_col_widths_ref = [@$col_widths_ref];
+    my $is_hidden_ref       = [(0) x $n_cols];
+    my $is_numeric_ref      = detect_numeric(\@data, $n_cols, MAX_ANALYSIS_ROWS);
 
     # ------ Terminal size ------------------------------
     my ($term_rows, $term_cols) = _get_term_size();
@@ -848,10 +921,12 @@ sub _main {
     my $show_line_nums          = $opt_line_nums;
     my $show_col_nums           = 0;
     my $col_base_idx            = 1;
+    my $saved_show_col_nums     = 0;
+    my $saved_col_base_idx      = 1;
     my $pending_line_num_toggle = 0;
     my $pending_dash            = 0;
 
-    my $prompt_mode  = undef;  # undef, '/' for search, '&' for filter
+    my $prompt_mode  = undef;  # undef, '/' for search, '&' for filter, 'w ' for width
     my $prompt_state = {
         buffer   => '',
         cursor   => 0,
@@ -980,13 +1055,13 @@ sub _main {
 
         # Line 1: column numbers (bold) if enabled
         if ($show_col_nums) {
-            my $colnum_raw     = build_colnum_line($col_widths_ref, $is_numeric_ref, $col_base_idx);
+            my $colnum_raw     = build_colnum_line($col_widths_ref, $is_numeric_ref, $col_base_idx, $is_hidden_ref);
             my $colnum_clipped = clip_content($colnum_raw, $h_offset, $content_w);
             $output .= $BOLD . $header_ln . $colnum_clipped . $RESET . $CLEAR_EOL . "\n";
         }
 
         # Line 2: header (bold)
-        my $header_raw     = build_row_line($header, $col_widths_ref, $is_numeric_ref);
+        my $header_raw     = build_row_line($header, $col_widths_ref, $is_numeric_ref, $is_hidden_ref);
         my $header_clipped = clip_content($header_raw, $h_offset, $content_w);
         $output .= $BOLD . $header_ln . $header_clipped . $RESET . $CLEAR_EOL . "\n";
 
@@ -1004,7 +1079,7 @@ sub _main {
                 my $clipped    = render_clipped_row(
                     \@fields, $col_widths_ref, $is_numeric_ref,
                     $h_offset, $content_w, $ri, $search_regex, $active_match_tuple,
-                    $opt_delim
+                    $opt_delim, $is_hidden_ref
                 );
                 $output .= $BOLD . $row_prefix . $RESET . $clipped . $CLEAR_EOL . "\n";
             } else {
@@ -1079,6 +1154,7 @@ sub _main {
             '|  p            Prev match    |',
             '|  1            1-based cols  |',
             '|  0            0-based cols  |',
+            '|  w            Adjust width  |',
             '|  -N           Line numbers  |',
             '|  q            Quit          |',
             '|  h / ?        Toggle help   |',
@@ -1136,6 +1212,10 @@ sub _main {
 
         if (defined $prompt_mode) {
             if ($key eq "\e" || $key eq "\x03") {
+                if ($prompt_mode eq 'w' || $prompt_mode eq 'w ') {
+                    $show_col_nums = $saved_show_col_nums;
+                    $col_base_idx  = $saved_col_base_idx;
+                }
                 $prompt_mode = undef;
                 $draw_screen->();
                 next;
@@ -1177,6 +1257,22 @@ sub _main {
                         }
                     }
                     $v_offset = 0;
+                    $h_offset = clamp($h_offset, 0, $max_h->());
+                } elsif ($mode eq 'w' || $mode eq 'w ') {
+                    $show_col_nums = $saved_show_col_nums;
+                    $col_base_idx  = $saved_col_base_idx;
+                    $status_msg    = undef;
+                    my ($ok, $msg) = adjust_column_widths(
+                        $orig_col_widths_ref,
+                        $col_widths_ref,
+                        $is_hidden_ref,
+                        $header,
+                        $query,
+                        $n_cols
+                    );
+                    if (!$ok) {
+                        $status_msg = $msg;
+                    }
                     $h_offset = clamp($h_offset, 0, $max_h->());
                 }
                 $draw_screen->();
@@ -1225,6 +1321,15 @@ sub _main {
         } elsif ($key eq '&' || $key eq '-&') {
             $prompt_mode  = '&';
             $prompt_state = { buffer => '', cursor => 0, history => $filter_history_ref, hist_idx => undef, draft => '' };
+            $draw_screen->();
+        } elsif ($key eq 'w') {
+            $saved_show_col_nums = $show_col_nums;
+            $saved_col_base_idx  = $col_base_idx;
+            $show_col_nums       = 1;
+            $col_base_idx        = 1;
+            $prompt_mode         = 'w ';
+            $prompt_state        = { buffer => '', cursor => 0, history => [], hist_idx => undef, draft => '' };
+            $v_offset            = clamp($v_offset, 0, $max_v->());
             $draw_screen->();
         } elsif ($key eq 'n') {
             $navigate_match->(1);
