@@ -782,6 +782,26 @@ subtest 'adjust_column_widths --- hide column with :0' => sub {
     is($hidden->[2], 0, 'col 3 hidden flag cleared');
 };
 
+subtest 'adjust_column_widths --- multiple specifiers on one line' => sub {
+    my $orig   = [10, 20, 30, 40];
+    my $curr   = [10, 20, 30, 40];
+    my $hidden = [0, 0, 0, 0];
+    my $header = ['name', 'age', 'score', 'city'];
+
+    # Multiple specifiers: '1 2:15 3:0' -> shrink col 1, set col 2 to 15, hide col 3
+    my ($ok, $msg) = adjust_column_widths($orig, $curr, $hidden, $header, '1 2:15 3:0', 4);
+    ok($ok, 'multiple specifiers succeeded');
+    is($curr->[0], 4, 'col 1 shrunk to header length (name=4)');
+    is($curr->[1], 15, 'col 2 set to 15');
+    is($curr->[2], 1, 'col 3 set to 1 (hidden)');
+    is($hidden->[2], 1, 'col 3 hidden flag set');
+    is($curr->[3], 40, 'col 4 untouched');
+
+    # Multiple specifiers with invalid token: all-or-nothing check
+    my ($fail_ok, $fail_msg) = adjust_column_widths($orig, $curr, $hidden, $header, '1 5:10', 4);
+    ok(!$fail_ok, 'fails when any token is out of bounds');
+};
+
 subtest 'adjust_column_widths --- error handling' => sub {
     my $orig   = [10, 20];
     my $curr   = [10, 20];
@@ -815,6 +835,67 @@ subtest 'hidden column rendering in lines' => sub {
         0, 20, 0, undef, undef, "\t", $is_hidden
     );
     is($row_line, "Alice |   99.5      ", 'hidden column rendered as | in data row');
+};
+
+subtest 'multiple adjacent hidden columns rendered without spaces' => sub {
+    my $col_widths = [5, 1, 1, 1, 6];
+    my $is_numeric = [0, 0, 0, 0, 1];
+    my $is_hidden  = [0, 1, 1, 1, 0];
+
+    my $colnum_line = build_colnum_line($col_widths, $is_numeric, 1, $is_hidden);
+    is($colnum_line, "1     |||      5", 'adjacent hidden columns rendered as ||| without spaces in colnum line');
+
+    my $header_line = build_row_line(['name', 'c2', 'c3', 'c4', 'score'], $col_widths, $is_numeric, $is_hidden);
+    is($header_line, "name  |||  score", 'adjacent hidden columns rendered as ||| without spaces in header line');
+
+    my $row_line = render_clipped_row(
+        ['Alice', 'd2', 'd3', 'd4', '99.5'],
+        $col_widths, $is_numeric,
+        0, 20, 0, undef, undef, "\t", $is_hidden
+    );
+    is($row_line, "Alice |||   99.5    ", 'adjacent hidden columns rendered as ||| without spaces in data row');
+
+    is(total_line_width($col_widths, $is_hidden), 16, 'total_line_width excludes spaces between adjacent hidden columns');
+};
+
+subtest 'help box dimensions and format' => sub {
+    # Verify that the help box lines in t2v are uniform in width and under 24 lines tall
+    open my $fh, '<', "$Bin/../t2v" or die $!;
+    my @help_lines;
+    my $in_help = 0;
+    while (my $line = <$fh>) {
+        if ($line =~ /my \@lines = \(/) {
+            $in_help = 1;
+            next;
+        }
+        if ($in_help) {
+            last if $line =~ /^\s*\);/;
+            if ($line =~ /'([^']+)'/) {
+                push @help_lines, $1;
+            }
+        }
+    }
+    close $fh;
+
+    cmp_ok(scalar(@help_lines), '<=', 20, 'help box height is well under 24 lines (<= 20)');
+    my $expected_w = length($help_lines[0]);
+    for my $i (0 .. $#help_lines) {
+        is(length($help_lines[$i]), $expected_w, "help line $i has uniform width $expected_w");
+    }
+};
+
+subtest 'format_usage_message and format_detailed_help' => sub {
+    my $usage = format_usage_message();
+    like($usage, qr/Usage: t2v/, 'usage contains usage line');
+    like($usage, qr/--delimiter/, 'usage lists options');
+    unlike($usage, qr/Navigation Commands:/, 'short usage does not contain full command list');
+
+    my $help = format_detailed_help();
+    like($help, qr/Usage: t2v/, 'detailed help contains usage line');
+    like($help, qr/Navigation Commands:/, 'detailed help contains navigation commands section');
+    like($help, qr/Search & Filter Commands:/, 'detailed help contains search and filter commands section');
+    like($help, qr/Column & Display Commands:/, 'detailed help contains column commands section');
+    like($help, qr/Adjust column widths/, 'detailed help describes w command');
 };
 
 done_testing();

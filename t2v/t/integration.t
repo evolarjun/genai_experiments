@@ -782,6 +782,63 @@ subtest 'w key custom width and hide column' => sub {
     teardown();
 };
 
+subtest 'w key hides multiple adjacent columns as ||' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Hide col 2 (age) and col 3 (score)
+    send_keys('w', '2', ':', '0', 'Enter');
+    select(undef, undef, undef, 0.05);
+    send_keys('w', '3', ':', '0', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $hidden = capture();
+    like($hidden, qr/name\s+\|\|\s+city/, 'headers show || without spaces between adjacent hidden cols');
+    like($hidden, qr/Alice\s+\|\|\s+New York/, 'data rows show || without spaces between adjacent hidden cols');
+
+    teardown();
+};
+
+subtest 'w key accepts multiple column specifiers on one line' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv");
+
+    # Enter multiple specifiers: shrink col 1 (name), hide col 2 (age), set col 3 (score) to 12
+    send_keys('w', '1', ' ', '2', ':', '0', ' ', '3', ':', '1', '2', 'Enter');
+    select(undef, undef, undef, 0.05);
+
+    my $screen = capture();
+    # col 1 shrunk to 'name' (4 chars, Grace -> Gra>)
+    like($screen, qr/Gra>/, 'col 1 shrunk to header length');
+    # col 2 hidden (|)
+    like($screen, qr/\|\s+score/, 'col 2 hidden with |');
+    # col 3 expanded to 12 (score is numeric so right-aligned with 7 leading spaces)
+    like($screen, qr/\|\s{8}score city/, 'col 3 expanded to width 12');
+
+    teardown();
+};
+
+subtest 'CLI usage vs detailed help flags' => sub {
+    # No args (interactive terminal invocation): exits 1 and prints short usage to STDERR
+    my $no_args_out = `$t2v 2>&1`;
+    my $no_args_exit = $? >> 8;
+    is($no_args_exit, 1, 'no args exits with code 1');
+    like($no_args_out, qr/Usage: t2v/, 'no args prints usage');
+    unlike($no_args_out, qr/Navigation Commands:/, 'no args does not print detailed command list');
+
+    # -h flag: exits 0 and prints detailed help
+    my $short_h_out = `$t2v -h 2>&1`;
+    my $short_h_exit = $? >> 8;
+    is($short_h_exit, 0, '-h exits with code 0');
+    like($short_h_out, qr/Navigation Commands:/, '-h includes navigation commands');
+    like($short_h_out, qr/Search & Filter Commands:/, '-h includes search/filter commands');
+    like($short_h_out, qr/Column & Display Commands:/, '-h includes column commands');
+
+    # --help flag: exits 0 and prints detailed help
+    my $long_h_out = `$t2v --help 2>&1`;
+    my $long_h_exit = $? >> 8;
+    is($long_h_exit, 0, '--help exits with code 0');
+    like($long_h_out, qr/Navigation Commands:/, '--help includes navigation commands');
+};
+
 done_testing();
 
 

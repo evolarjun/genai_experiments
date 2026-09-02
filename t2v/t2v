@@ -17,11 +17,11 @@ my $RESET     = "\e[0m";
 my $CLEAR_EOL = "\e[K";
 my $HOME      = "\e[H";
 
-# ------ Usage ------------------------------
-sub usage {
-    print STDERR <<"END";
-Usage: t2v [-d DELIM | -c] [FILE]
-       cat FILE | t2v [-d DELIM | -c]
+# ------ Usage & Help ------------------------------
+sub format_usage_message {
+    return <<"END";
+Usage: t2v [-d DELIM | -c] [-N] [FILE]
+       cat FILE | t2v [-d DELIM | -c] [-N]
 
 A tab-delimited or CSV file viewer with fixed-width columns and horizontal scrolling.
 
@@ -29,13 +29,71 @@ Options:
   -d, --delimiter DELIM  Field delimiter (default: tab)
   -c, --csv              Parse RFC 4180 CSV (removes quotes and unescapes data)
   -N                     Show line numbers
-  -h, --help             Show this help
+  -h, --help             Show detailed help and interactive commands
 
 Keys:
   h, ?                   Show keybinding help
   q                      Quit
 END
+}
+
+sub format_detailed_help {
+    return <<"END";
+Usage: t2v [-d DELIM | -c] [-N] [FILE]
+       cat FILE | t2v [-d DELIM | -c] [-N]
+
+A tab-delimited or CSV file viewer with fixed-width columns and horizontal scrolling.
+
+Options:
+  -d, --delimiter DELIM  Field delimiter (default: tab)
+  -c, --csv              Parse RFC 4180 CSV (removes quotes and unescapes data)
+  -N                     Show line numbers
+  -h, --help             Show this detailed help message
+
+Navigation Commands:
+  Up, k                  Scroll up one row
+  Down, j                Scroll down one row
+  Left                   Scroll left 10 characters
+  Right                  Scroll right 10 characters
+  Tab                    Scroll right 4/5 of viewport width
+  Shift-Tab              Scroll left 4/5 of viewport width
+  b, Ctrl-B, Backspace   Scroll up one screenful (page)
+  f, Ctrl-F, Space       Scroll down one screenful (page)
+  g, Home                Jump to first row
+  G, End                 Jump to last row
+
+Search & Filter Commands:
+  /                      Search data rows with a regular expression
+  &                      Filter data rows matching a regular expression
+                         (submitting an empty prompt clears the filter)
+  n                      Jump to next search match
+  p                      Jump to previous search match
+
+Column & Display Commands:
+  1                      Toggle 1-based column numbers above headers
+  0                      Toggle 0-based column numbers above headers
+  w                      Adjust column widths (prompts for column specifiers):
+                           <empty>  Reset all columns to original full widths
+                           N        Toggle column N between header width and full width
+                           N:W      Set column N to width W
+                           N:0      Hide column N entirely (rendered as '|')
+                         Multiple specifiers can be space-separated (e.g. '1 2:10 3:0')
+  -N, N                  Toggle line numbers on/off (prompts for Enter confirmation)
+
+General Commands:
+  h, ?                   Toggle interactive keybinding help overlay
+  q                      Quit viewer
+END
+}
+
+sub usage {
+    print STDERR format_usage_message();
     exit 1;
+}
+
+sub detailed_help {
+    print STDOUT format_detailed_help();
+    exit 0;
 }
 
 # ------------------------------
@@ -361,12 +419,15 @@ sub render_clipped_row {
 
         # Separator space after column
         if ($ci < $#$col_widths_ref) {
-            my $sep_pos = $curr_pos;
-            if ($sep_pos >= $h_offset && $printed_len < $width) {
-                $output .= ' ';
-                $printed_len++;
+            my $next_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci + 1]);
+            unless ($is_hidden && $next_hidden) {
+                my $sep_pos = $curr_pos;
+                if ($sep_pos >= $h_offset && $printed_len < $width) {
+                    $output .= ' ';
+                    $printed_len++;
+                }
+                $curr_pos++;
             }
-            $curr_pos++;
         }
     }
 
@@ -398,7 +459,7 @@ sub compute_search_h_offset {
 # $is_hidden_ref  : arrayref of per-column hidden flags or undef
 sub build_row_line {
     my ($fields_ref, $col_widths_ref, $is_numeric_ref, $is_hidden_ref) = @_;
-    my @cells;
+    my $line = '';
     for my $ci (0 .. $#$col_widths_ref) {
         my $is_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
         my $cell = $is_hidden ? '|' : format_cell(
@@ -406,9 +467,13 @@ sub build_row_line {
             $col_widths_ref->[$ci],
             $is_numeric_ref->[$ci],
         );
-        push @cells, $cell;
+        $line .= $cell;
+        if ($ci < $#$col_widths_ref) {
+            my $next_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci + 1]);
+            $line .= ' ' unless ($is_hidden && $next_hidden);
+        }
     }
-    return join(' ', @cells);
+    return $line;
 }
 
 # Build the full display string for the column-number row.
@@ -419,13 +484,17 @@ sub build_colnum_line {
     my ($col_widths_ref, $is_numeric_ref, $base_idx, $is_hidden_ref) = @_;
     $base_idx //= 1;
     $is_numeric_ref //= [(1) x scalar(@$col_widths_ref)];
-    my @cells;
+    my $line = '';
     for my $ci (0 .. $#$col_widths_ref) {
         my $is_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
         my $cell = $is_hidden ? '|' : format_cell($ci + $base_idx, $col_widths_ref->[$ci], $is_numeric_ref->[$ci]);
-        push @cells, $cell;
+        $line .= $cell;
+        if ($ci < $#$col_widths_ref) {
+            my $next_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci + 1]);
+            $line .= ' ' unless ($is_hidden && $next_hidden);
+        }
     }
-    return join(' ', @cells);
+    return $line;
 }
 
 # Adjust column widths based on user input string.
@@ -433,7 +502,7 @@ sub build_colnum_line {
 # $curr_widths_ref : arrayref of current column widths (modified in-place)
 # $is_hidden_ref   : arrayref of column hidden flags (0 or 1, modified in-place)
 # $header_ref      : arrayref of header strings
-# $input           : user input string ('', '<col>', '<col>:<width>', '<col>:0')
+# $input           : user input string ('', '<col>', '<col>:<width>', '<col>:0', or multiple separated by space)
 # $n_cols          : number of columns
 # Returns ($success, $status_message)
 sub adjust_column_widths {
@@ -450,45 +519,48 @@ sub adjust_column_widths {
         return (1, "Reset all columns to original widths");
     }
 
-    # 2. <col_num>:<width>
-    if ($input =~ /^(\d+)\s*:\s*(\d+)$/) {
-        my ($col_num, $w) = ($1, $2);
-        if ($col_num < 1 || $col_num > $n_cols) {
-            return (0, "Invalid column number: $col_num");
-        }
-        my $ci = $col_num - 1;
-        if ($w == 0) {
-            $curr_widths_ref->[$ci] = 1;
-            $is_hidden_ref->[$ci]   = 1;
-            return (1, "Hidden column $col_num");
+    my @tokens = split(/\s+/, $input);
+
+    # Validate all tokens first
+    for my $tok (@tokens) {
+        if ($tok =~ /^(\d+)(?::(\d+))?$/) {
+            my ($col_num, $w) = ($1, $2);
+            if ($col_num < 1 || $col_num > $n_cols) {
+                return (0, "Invalid column number: $col_num");
+            }
         } else {
-            $curr_widths_ref->[$ci] = $w;
-            $is_hidden_ref->[$ci]   = 0;
-            return (1, "Set column $col_num width to $w");
+            return (0, "Invalid column width specification: $tok");
         }
     }
 
-    # 3. <col_num> (toggle)
-    if ($input =~ /^(\d+)$/) {
-        my $col_num = $1;
-        if ($col_num < 1 || $col_num > $n_cols) {
-            return (0, "Invalid column number: $col_num");
-        }
-        my $ci = $col_num - 1;
-        # If already modified (width != orig or hidden == 1), restore to orig
-        if ($curr_widths_ref->[$ci] != $orig_widths_ref->[$ci] || $is_hidden_ref->[$ci]) {
-            $curr_widths_ref->[$ci] = $orig_widths_ref->[$ci];
-            $is_hidden_ref->[$ci]   = 0;
-            return (1, "Restored column $col_num to original width");
-        } else {
-            my $hw = length($header_ref->[$ci] // '');
-            $curr_widths_ref->[$ci] = max(1, $hw);
-            $is_hidden_ref->[$ci]   = 0;
-            return (1, "Shrunk column $col_num to header width");
+    # Apply each token in order
+    for my $tok (@tokens) {
+        if ($tok =~ /^(\d+):(\d+)$/) {
+            my ($col_num, $w) = ($1, $2);
+            my $ci = $col_num - 1;
+            if ($w == 0) {
+                $curr_widths_ref->[$ci] = 1;
+                $is_hidden_ref->[$ci]   = 1;
+            } else {
+                $curr_widths_ref->[$ci] = $w;
+                $is_hidden_ref->[$ci]   = 0;
+            }
+        } elsif ($tok =~ /^(\d+)$/) {
+            my $col_num = $1;
+            my $ci = $col_num - 1;
+            # If already modified (width != orig or hidden == 1), restore to orig
+            if ($curr_widths_ref->[$ci] != $orig_widths_ref->[$ci] || $is_hidden_ref->[$ci]) {
+                $curr_widths_ref->[$ci] = $orig_widths_ref->[$ci];
+                $is_hidden_ref->[$ci]   = 0;
+            } else {
+                my $hw = length($header_ref->[$ci] // '');
+                $curr_widths_ref->[$ci] = max(1, $hw);
+                $is_hidden_ref->[$ci]   = 0;
+            }
         }
     }
 
-    return (0, "Invalid column width specification: $input");
+    return (1, "Updated column widths");
 }
 
 # Clip a content string at $h_offset and pad/truncate to exactly $width chars.
@@ -556,10 +628,16 @@ sub detect_numeric {
 
 # Compute total logical line width (all columns + separators).
 sub total_line_width {
-    my ($col_widths_ref) = @_;
+    my ($col_widths_ref, $is_hidden_ref) = @_;
     my $w = 0;
-    $w += $_ for @$col_widths_ref;
-    $w += max(0, scalar(@$col_widths_ref) - 1);  # spaces between cols
+    for my $ci (0 .. $#$col_widths_ref) {
+        $w += $col_widths_ref->[$ci];
+        if ($ci < $#$col_widths_ref) {
+            my $curr_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
+            my $next_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci + 1]);
+            $w++ unless ($curr_hidden && $next_hidden);
+        }
+    }
     return $w;
 }
 
@@ -812,7 +890,7 @@ sub _main {
         'N|numbers!'    => \$opt_line_nums,
         'help|h'        => \$opt_help,
     ) or usage();
-    usage() if $opt_help;
+    detailed_help() if $opt_help;
 
     if ($opt_csv && defined $opt_delim) {
         print STDERR "t2v: Cannot specify both --csv and --delimiter\n";
@@ -949,7 +1027,7 @@ sub _main {
     my $max_v             = sub { max(0, $n_filtered_rows->() - $visible_data_rows->()) };
     my $max_h             = sub {
         my $avail = $show_line_nums ? max(1, $term_cols - (length($n_rows) + 1)) : $term_cols;
-        max(0, total_line_width($col_widths_ref) - $avail);
+        max(0, total_line_width($col_widths_ref, $is_hidden_ref) - $avail);
     };
 
     my $execute_search = sub {
@@ -1001,7 +1079,10 @@ sub _main {
 
         my $col_start = 0;
         for my $ci (0 .. $c - 1) {
-            $col_start += $col_widths_ref->[$ci] + 1;
+            $col_start += $col_widths_ref->[$ci];
+            my $curr_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
+            my $next_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci + 1]);
+            $col_start++ unless ($curr_hidden && $next_hidden);
         }
         my $col_w     = $col_widths_ref->[$c];
         my $ln_len    = $show_line_nums ? (length($n_rows) + 1) : 0;
@@ -1037,7 +1118,10 @@ sub _main {
 
         my $col_start = 0;
         for my $ci (0 .. $c - 1) {
-            $col_start += $col_widths_ref->[$ci] + 1;
+            $col_start += $col_widths_ref->[$ci];
+            my $curr_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci]);
+            my $next_hidden = ($is_hidden_ref && $is_hidden_ref->[$ci + 1]);
+            $col_start++ unless ($curr_hidden && $next_hidden);
         }
         my $col_w     = $col_widths_ref->[$c];
         my $ln_len    = $show_line_nums ? (length($n_rows) + 1) : 0;
@@ -1137,30 +1221,21 @@ sub _main {
 
     my $draw_help = sub {
         my @lines = (
-            '+-----------------------------+',
-            '|        KEYBINDINGS          |',
-            '+-----------------------------+',
-            '|  Up/Down, k/j Scroll rows   |',
-            '|  Left / Right Scroll 10ch   |',
-            '|  Tab          Scroll 4/5 vp |',
-            '|  Shift-Tab    Scroll 4/5 vp |',
-            '|  b/C-b/<bksp> Scroll page   |',
-            '|  f/C-f/<sp>   Scroll page   |',
-            '|  g / Home     First row     |',
-            '|  G / End      Last row      |',
-            '|  /            Search regex  |',
-            '|  &            Filter rows   |',
-            '|  n            Next match    |',
-            '|  p            Prev match    |',
-            '|  1            1-based cols  |',
-            '|  0            0-based cols  |',
-            '|  w            Adjust width  |',
-            '|  -N           Line numbers  |',
-            '|  q            Quit          |',
-            '|  h / ?        Toggle help   |',
-            '|                             |',
-            '|  Press any key to dismiss   |',
-            '+-----------------------------+',
+            '+-----------------------------------------------------------+',
+            '|                        KEYBINDINGS                        |',
+            '+-----------------------------+-----------------------------+',
+            '|  Up/Down, k/j  Scroll rows  |  /             Search regex |',
+            '|  Left / Right  Scroll 10ch  |  &             Filter rows  |',
+            '|  Tab           Scroll 4/5 vp|  n             Next match   |',
+            '|  Shift-Tab     Scroll 4/5 vp|  p             Prev match   |',
+            '|  b/C-b/<bksp>  Scroll page  |  1             1-based cols |',
+            '|  f/C-f/<sp>    Scroll page  |  0             0-based cols |',
+            '|  g / Home      First row    |  w             Adjust width |',
+            '|  G / End       Last row     |  -N            Line numbers |',
+            '|  q             Quit         |  h / ?         Toggle help  |',
+            '+-----------------------------+-----------------------------+',
+            '|                  Press any key to dismiss                 |',
+            '+-----------------------------------------------------------+',
         );
         my $box_w   = length($lines[0]);
         my $box_h   = scalar @lines;
