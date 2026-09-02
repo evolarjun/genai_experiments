@@ -227,7 +227,7 @@ subtest 'help overlay appears on h' => sub {
     my $screen = capture();
     like($screen, qr/KEYBINDINGS/, 'help overlay shows KEYBINDINGS');
     like($screen, qr/Quit/,        'help overlay shows Quit binding');
-    like($screen, qr/<BS>/,        'help overlay shows <BS> binding');
+    like($screen, qr/C-b/,         'help overlay shows C-b binding');
     like($screen, qr/&/,           'help overlay shows & binding');
     send_keys('Escape');
     teardown(keep_alive => 1);
@@ -312,6 +312,40 @@ subtest 'backspace key scrolls up by one screenful (PgUp synonym)' => sub {
     select(undef, undef, undef, 0.05);
     my $up = capture();
     like($up, qr/\bAlice\b/, 'Alice visible again after Backspace');
+    send_keys('Home');
+    teardown(keep_alive => 1);
+};
+
+subtest 'C-f and f scroll down by one screenful (PgDn synonyms)' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8, reuse => 1);
+
+    send_keys('C-f');
+    select(undef, undef, undef, 0.05);
+    my $after_cf = capture();
+    unlike($after_cf, qr/\bAlice\b/, 'Alice scrolled off after C-f');
+
+    send_keys('Home');
+    send_keys('f');
+    select(undef, undef, undef, 0.05);
+    my $after_f = capture();
+    unlike($after_f, qr/\bAlice\b/, 'Alice scrolled off after f');
+
+    send_keys('Home');
+    teardown(keep_alive => 1);
+};
+
+subtest 'C-b scrolls up by one screenful (PgUp synonym)' => sub {
+    launch(cmd => "$t2v $fixtures/basic.tsv", height => 8, reuse => 1);
+
+    send_keys('Space');
+    select(undef, undef, undef, 0.05);
+    my $down = capture();
+    unlike($down, qr/\bAlice\b/, 'Alice scrolled off after Space');
+
+    send_keys('C-b');
+    select(undef, undef, undef, 0.05);
+    my $up = capture();
+    like($up, qr/\bAlice\b/, 'Alice visible again after C-b');
     teardown();
 };
 

@@ -979,8 +979,8 @@ sub _main {
             '|  Left / Right Scroll 10ch   |',
             '|  Tab          Scroll 4/5 vp |',
             '|  Shift-Tab    Scroll 4/5 vp |',
-            '|  PgUp / <BS>  Scroll page   |',
-            '|  PgDn / Space Scroll page   |',
+            '|  PgUp/b/C-b   Scroll page   |',
+            '|  PgDn/f/C-f   Scroll page   |',
             '|  g / Home     First row     |',
             '|  G / End      Last row      |',
             '|  /            Search regex  |',
@@ -1186,10 +1186,10 @@ sub _main {
             my $step = int($term_cols * 4 / 5) || 1;
             $h_offset = clamp($h_offset - $step, 0, $max_h->());
             $draw_screen->();
-        } elsif ($key eq "\e[5~" || $key eq "\x7f" || $key eq "\x08" || $key eq 'b') {   # PgUp / Backspace / b
+        } elsif ($key eq "\e[5~" || $key eq "\x7f" || $key eq "\x08" || $key eq 'b' || $key eq "\x02") {   # PgUp / Backspace / b / Ctrl-B
             $v_offset = clamp($v_offset - $visible_data_rows->(), 0, $max_v->());
             $draw_screen->();
-        } elsif ($key eq "\e[6~" || $key eq ' ') {    # PgDn or Space
+        } elsif ($key eq "\e[6~" || $key eq ' ' || $key eq 'f' || $key eq "\x06") {    # PgDn / Space / f / Ctrl-F
             $v_offset = clamp($v_offset + $visible_data_rows->(), 0, $max_v->());
             $draw_screen->();
         } elsif ($key eq "\e[H" || $key eq "\e[1~" || $key eq 'g') { # Home / g
