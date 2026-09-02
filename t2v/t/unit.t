@@ -4,18 +4,18 @@ use warnings;
 use Test::More;
 use FindBin qw($Bin);
 
-# ------ Load the t2v script without running _main() ---------------------------------------------------------------------------------------------
+# ------ Load the t2v script without running _main() ------------------------------
 # The `unless (caller())` guard in t2v prevents _main() from running when
 # the file is loaded via `do`.
 my $t2v = "$Bin/../t2v";
 do $t2v or die "Could not load $t2v: $@";
 
-# ------ Helpers ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------ Helpers ------------------------------
 sub strip_ansi { (my $s = $_[0]) =~ s/\e\[[0-9;]*[mABCDHJKfsuhl]//g; $s }
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # clamp()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'clamp' => sub {
     is(clamp(5,  0, 10), 5,  'within range');
     is(clamp(-1, 0, 10), 0,  'below min clamps to min');
@@ -25,9 +25,9 @@ subtest 'clamp' => sub {
     is(clamp(10, 0, 10), 10, 'exactly at max');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # format_cell()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'format_cell --- left-align (text)' => sub {
     is(format_cell('hello', 10, 0), 'hello     ', 'padded right with spaces');
     is(format_cell('hello', 5,  0), 'hello',      'exact fit, no padding');
@@ -47,9 +47,9 @@ subtest 'format_cell --- truncation' => sub {
     is(length(format_cell('toolong', 5, 0)), 5, 'truncated result is exactly width');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # clip_content()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'clip_content' => sub {
     my $content = 'ABCDEFGHIJ';  # 10 chars
 
@@ -62,9 +62,9 @@ subtest 'clip_content' => sub {
     is(length(clip_content($content, 0, 15)), 15, 'result is exactly width when shorter');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # compute_col_widths()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'compute_col_widths' => sub {
     my $header = ['name', 'age', 'score'];
     my @rows = (
@@ -103,9 +103,9 @@ subtest 'compute_col_widths --- limit respected' => sub {
     is($widths_all->[0],    15, 'no limit: sees "a_very_long_val" (15 chars)');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # detect_numeric()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'detect_numeric --- all numeric' => sub {
     my @rows = (['1', '2.5', '-3', '+4', '1e5', '1.2E-3', '0']);
     my $flags = detect_numeric(\@rows, 7, undef);
@@ -139,9 +139,9 @@ subtest 'detect_numeric --- limit respected' => sub {
     ok(!$flags_all->[0],     'no limit: sees "three", column is text');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # build_row_line()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'build_row_line' => sub {
     my $fields     = ['Alice', '30', '98.5'];
     my $col_widths = [5, 3, 7];
@@ -163,9 +163,9 @@ subtest 'build_row_line --- ragged row (missing fields --- empty)' => sub {
     is($line, 'Alice            ', 'missing fields render as padded spaces');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # build_colnum_line()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'build_colnum_line' => sub {
     my $col_widths = [5, 3, 7];
     my $is_numeric = [0, 1, 1];
@@ -188,18 +188,18 @@ subtest 'build_colnum_line --- 0-based indexing' => sub {
     is($line, '0       1       2', '0-based column numbers start at 0');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # total_line_width()
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'total_line_width' => sub {
     is(total_line_width([5, 3, 7]), 5 + 1 + 3 + 1 + 7, '3 cols: widths + 2 separators');
     is(total_line_width([10]),      10,                  'single col: width only');
     is(total_line_width([]),        0,                   'no cols: 0');
 };
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # Fixture-based integration of pure functions
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 subtest 'fixture: basic.tsv --- column widths and numeric detection' => sub {
     my $fixture = "$Bin/fixtures/basic.tsv";
     open(my $fh, '<', $fixture) or die "Cannot open $fixture: $!";
@@ -254,6 +254,33 @@ subtest 'fixture: ragged.tsv --- handles missing fields' => sub {
     my $line = build_row_line(\@fields, $widths, $is_numeric);
     ok(defined $line, 'render_row does not die on ragged row');
     is(length($line), total_line_width($widths), 'rendered line has correct total width');
+};
+
+subtest 'fixture: quoted.csv --- RFC 4180 parsing with widths and types' => sub {
+    my $fixture = "$Bin/fixtures/quoted.csv";
+    open(my $fh, '<', $fixture) or die "Cannot open $fixture: $!";
+    my @all_rows;
+    while (my $line = <$fh>) {
+        push @all_rows, parse_csv_line($line, sub { scalar <$fh> });
+    }
+    close $fh;
+
+    is(scalar @all_rows, 5, '5 rows total (1 header + 4 data rows)');
+    is_deeply($all_rows[0], ['id', 'name', 'desc', 'price'], 'header unquoted');
+    is_deeply($all_rows[1], ['1', 'Widget, Basic', 'Standard widget', '9.99'], 'row 1 commas preserved');
+    is_deeply($all_rows[2], ['2', 'Widget "Pro"', 'Top widget "plus"', '29.99'], 'row 2 quotes unescaped');
+    is_deeply($all_rows[3], ['3', 'Gadget', "Multi-line\\ngadget", '49.50'], 'row 3 multi-line field has \\n');
+
+    my $header = $all_rows[0];
+    my @data   = @all_rows[1..$#all_rows];
+    my $n_cols = scalar @$header;
+    my $widths = compute_col_widths(\@data, $header, $n_cols, undef);
+    my $numeric = detect_numeric(\@data, $n_cols, undef);
+
+    ok($numeric->[0], 'col 0 (id) is numeric');
+    ok(!$numeric->[1], 'col 1 (name) is text');
+    ok(!$numeric->[2], 'col 2 (desc) is text');
+    ok($numeric->[3], 'col 3 (price) is numeric');
 };
 
 subtest 'format_line_num' => sub {
@@ -411,9 +438,9 @@ subtest 'compute_search_h_offset' => sub {
     is(compute_search_h_offset(200, 20, 80, 100), 100, 'clamps target offset to max_h');
 };
 
-# -------------------------------------------------------------------------------------------------
+# ------------------------------
 # History & ReadLine-style Prompt Editing Tests
-# -------------------------------------------------------------------------------------------------
+# ------------------------------
 
 subtest 'add_to_history' => sub {
     my $hist = [];
@@ -638,6 +665,50 @@ subtest 'prompt_edit_step --- history navigation (Up / Down)' => sub {
     # Down Arrow when already at draft is no-op
     prompt_edit_step($state, "\e[B");
     is($state->{buffer}, 'my_draft', 'Down when at draft remains at draft');
+};
+
+# ------------------------------
+# parse_csv_line Tests
+# ------------------------------
+
+subtest 'parse_csv_line --- simple unquoted' => sub {
+    my $fields = parse_csv_line('foo,bar,baz');
+    is_deeply($fields, ['foo', 'bar', 'baz'], 'parses simple unquoted fields');
+};
+
+subtest 'parse_csv_line --- quoted fields with commas' => sub {
+    my $fields = parse_csv_line('1,"Widget, Basic","A standard, everyday widget",9.99');
+    is_deeply($fields, ['1', 'Widget, Basic', 'A standard, everyday widget', '9.99'], 'removes quotes and preserves embedded commas');
+};
+
+subtest 'parse_csv_line --- escaped quotes' => sub {
+    my $fields = parse_csv_line('2,"Widget ""Pro""","Top-tier widget with ""extra"" features",29.99');
+    is_deeply($fields, ['2', 'Widget "Pro"', 'Top-tier widget with "extra" features', '29.99'], 'unescapes doubled double quotes to single quote');
+};
+
+subtest 'parse_csv_line --- embedded newlines' => sub {
+    my @lines = ("gadget description\",49.50");
+    my $fields = parse_csv_line("3,Gadget,\"Multi-line\n", sub { shift @lines });
+    is_deeply($fields, ['3', 'Gadget', 'Multi-line\ngadget description', '49.50'], 'replaces embedded newline with literal \n');
+};
+
+subtest 'parse_csv_line --- empty and trailing fields' => sub {
+    my $fields1 = parse_csv_line('a,"",c');
+    is_deeply($fields1, ['a', '', 'c'], 'handles empty quoted field');
+
+    my $fields2 = parse_csv_line('a,,c');
+    is_deeply($fields2, ['a', '', 'c'], 'handles empty unquoted field');
+
+    my $fields3 = parse_csv_line('a,b,');
+    is_deeply($fields3, ['a', 'b', ''], 'handles trailing comma');
+
+    my $fields4 = parse_csv_line('');
+    is_deeply($fields4, [''], 'empty line returns single empty field');
+};
+
+subtest 'parse_csv_line --- unclosed quote at EOF' => sub {
+    my $fields = parse_csv_line('1,"Unclosed quote field', sub { undef });
+    is_deeply($fields, ['1', 'Unclosed quote field'], 'gracefully handles unclosed quote at EOF without crashing');
 };
 
 done_testing();

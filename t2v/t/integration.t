@@ -5,7 +5,7 @@ use Test::More;
 use FindBin qw($Bin);
 use POSIX qw(SIGTERM);
 
-# ------ Helpers ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------ Helpers ------------------------------
 my $t2v      = "$Bin/../t2v";
 my $fixtures = "$Bin/fixtures";
 my $SESSION  = "t2v_test_$$";  # unique session name per test run
@@ -82,9 +82,9 @@ sub teardown {
     }
 }
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # Tests
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 
 subtest 'column numbers hidden by default' => sub {
     launch();
@@ -556,9 +556,9 @@ subtest 'Shift-Tab scrolls left 4/5 viewport' => sub {
     teardown();
 };
 
-# -------------------------------------------------------------------------------------------------
+# ------------------------------
 # History Integration Tests
-# -------------------------------------------------------------------------------------------------
+# ------------------------------
 
 subtest 'search history recall with Up arrow' => sub {
     launch(cmd => "$t2v $fixtures/basic.tsv");
@@ -660,6 +660,47 @@ subtest 'multi-field filter across column boundaries' => sub {
     my $filtered = capture();
     like($filtered, qr/Alice/, 'Alice is visible when multi-field filtered');
     unlike($filtered, qr/Bob/, 'Bob is hidden when multi-field filtered');
+
+    teardown();
+};
+
+subtest 'csv option --csv with RFC 4180 parsing' => sub {
+    launch(cmd => "$t2v --csv $fixtures/quoted.csv");
+    my $screen = capture();
+
+    like($screen, qr/name/, 'header visible');
+    like($screen, qr/Widget, Basic/, 'embedded comma in quoted string preserved');
+    like($screen, qr/Widget "Pro"/, 'escaped quotes unescaped in display');
+    like($screen, qr/Multi-line\\ngadget/, 'embedded newline displayed as literal \\n');
+
+    teardown();
+};
+
+subtest 'csv short option -c' => sub {
+    launch(cmd => "$t2v -c $fixtures/quoted.csv");
+    my $screen = capture();
+
+    like($screen, qr/Widget, Basic/, 'works with -c flag');
+    teardown();
+};
+
+subtest 'long delimiter option --delimiter' => sub {
+    launch(cmd => "$t2v --delimiter , $fixtures/csv.csv");
+    my $screen = capture();
+
+    like($screen, qr/product/, 'header visible with --delimiter');
+    like($screen, qr/Widget/, 'data visible with --delimiter');
+    teardown();
+};
+
+subtest 'search in CSV mode matches unquoted clean data' => sub {
+    launch(cmd => "$t2v --csv $fixtures/quoted.csv");
+
+    send_keys('/', 'W', 'i', 'd', 'g', 'e', 't', ' ', '"', 'P', 'r', 'o', '"', 'Enter');
+    select(undef, undef, undef, 0.2);
+
+    my $screen = capture();
+    like($screen, qr/Widget "Pro"/, 'searched and matched unquoted string');
 
     teardown();
 };

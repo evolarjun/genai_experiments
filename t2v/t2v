@@ -6,7 +6,7 @@ use Term::ReadKey;
 use List::Util qw(min max);
 use POSIX qw(ttyname);
 
-# ------ Constants ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------ Constants ------------------------------
 use constant MAX_ANALYSIS_ROWS => 10_000;
 use constant H_SCROLL_STEP     => 10;
 
@@ -17,29 +17,94 @@ my $RESET     = "\e[0m";
 my $CLEAR_EOL = "\e[K";
 my $HOME      = "\e[H";
 
-# ------ Usage ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------ Usage ------------------------------
 sub usage {
     print STDERR <<"END";
-Usage: t2v [-d DELIM] [FILE]
-       cat FILE | t2v [-d DELIM]
+Usage: t2v [-d DELIM | -c] [FILE]
+       cat FILE | t2v [-d DELIM | -c]
 
-A tab-delimited file viewer with fixed-width columns and horizontal scrolling.
+A tab-delimited or CSV file viewer with fixed-width columns and horizontal scrolling.
 
 Options:
-  -d DELIM     Field delimiter (default: tab)
-  -N           Show line numbers
-  -h, --help   Show this help
+  -d, --delimiter DELIM  Field delimiter (default: tab)
+  -c, --csv              Parse RFC 4180 CSV (removes quotes and unescapes data)
+  -N                     Show line numbers
+  -h, --help             Show this help
 
 Keys:
-  h, ?         Show keybinding help
-  q            Quit
+  h, ?                   Show keybinding help
+  q                      Quit
 END
     exit 1;
 }
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # PURE FUNCTIONS --- no terminal I/O, testable in isolation
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
+
+# Parse a single CSV line according to RFC 4180 rules.
+# $line          : string containing CSV line
+# $get_next_line : optional coderef returning next line string or undef on EOF (for multi-line fields)
+# Returns arrayref of unquoted, unescaped field values.
+sub parse_csv_line {
+    my ($line, $get_next_line) = @_;
+    return [''] unless defined $line;
+
+    $line =~ s/\r?\n$//;
+    my @fields;
+    my $curr_field = '';
+    my $in_quotes  = 0;
+    my $i          = 0;
+
+    while (1) {
+        if ($i >= length($line)) {
+            if ($in_quotes && defined $get_next_line) {
+                my $next = $get_next_line->();
+                if (defined $next) {
+                    $next =~ s/\r?\n$//;
+                    $curr_field .= "\\n";
+                    $line = $next;
+                    $i    = 0;
+                    next;
+                }
+            }
+            # Reached end of line (or EOF with unclosed quote)
+            push @fields, $curr_field;
+            last;
+        }
+
+        my $ch = substr($line, $i, 1);
+
+        if ($in_quotes) {
+            if ($ch eq '"') {
+                if ($i + 1 < length($line) && substr($line, $i + 1, 1) eq '"') {
+                    $curr_field .= '"';
+                    $i += 2;
+                } else {
+                    $in_quotes = 0;
+                    $i++;
+                }
+            } else {
+                $curr_field .= $ch;
+                $i++;
+            }
+        } else {
+            if ($ch eq ',') {
+                push @fields, $curr_field;
+                $curr_field = '';
+                $i++;
+            } elsif ($ch eq '"' && $curr_field eq '') {
+                $in_quotes = 1;
+                $i++;
+            } else {
+                $curr_field .= $ch;
+                $i++;
+            }
+        }
+    }
+
+    return \@fields;
+}
 
 # Clamp $val to [$lo, $hi].
 sub clamp {
@@ -427,9 +492,9 @@ sub total_line_width {
     return $w;
 }
 
-# -------------------------------------------------------------------------------------------------
+# ------------------------------
 # HISTORY & LINE EDITING PURE FUNCTIONS
-# -------------------------------------------------------------------------------------------------
+# ------------------------------
 
 # Add an entry to a history arrayref.
 # - Ignores undef or empty string
@@ -656,9 +721,9 @@ sub prompt_edit_step {
     }
 }
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 # MAIN PROGRAM --- only runs when executed directly, not when required by tests
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------
 unless (caller()) {
     _main();
 }
@@ -666,24 +731,43 @@ unless (caller()) {
 sub _main {
     $| = 1;  # autoflush STDOUT so every frame/status line prints immediately
 
-    # ------ Argument parsing ------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    my ($opt_delim, $opt_help, $opt_line_nums) = ("\t", 0, 0);
+    # ------ Argument parsing ------------------------------
+    my ($opt_delim, $opt_csv, $opt_help, $opt_line_nums);
+    $opt_line_nums = 0;
+    $opt_help      = 0;
     GetOptions(
-        'd=s'        => \$opt_delim,
-        'N|numbers!' => \$opt_line_nums,
-        'help|h'     => \$opt_help,
+        'd|delimiter=s' => \$opt_delim,
+        'c|csv'         => \$opt_csv,
+        'N|numbers!'    => \$opt_line_nums,
+        'help|h'        => \$opt_help,
     ) or usage();
     usage() if $opt_help;
 
-    # ------ Load data ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    if ($opt_csv && defined $opt_delim) {
+        print STDERR "t2v: Cannot specify both --csv and --delimiter\n";
+        usage();
+    }
+    if ($opt_csv) {
+        $opt_delim = ',';
+    } else {
+        $opt_delim //= "\t";
+    }
+
+    # ------ Load data ------------------------------
     my ($filename, @all_rows);
 
     if (!-t STDIN) {
         # Data arrives on STDIN (pipe); reopen STDIN from /dev/tty for keyboard.
         $filename = '<stdin>';
-        while (my $line = <STDIN>) {
-            chomp $line;
-            push @all_rows, [split /\Q$opt_delim\E/, $line, -1];
+        if ($opt_csv) {
+            while (my $line = <STDIN>) {
+                push @all_rows, parse_csv_line($line, sub { scalar <STDIN> });
+            }
+        } else {
+            while (my $line = <STDIN>) {
+                chomp $line;
+                push @all_rows, [split /\Q$opt_delim\E/, $line, -1];
+            }
         }
         # Reopen STDIN for keyboard input.
         # Try /dev/tty first; if that fails (e.g. Device not configured in subshell pipelines),
@@ -699,9 +783,15 @@ sub _main {
     } elsif (@ARGV) {
         $filename = $ARGV[0];
         open(my $fh, '<', $filename) or die "t2v: Cannot open '$filename': $!\n";
-        while (my $line = <$fh>) {
-            chomp $line;
-            push @all_rows, [split /\Q$opt_delim\E/, $line, -1];
+        if ($opt_csv) {
+            while (my $line = <$fh>) {
+                push @all_rows, parse_csv_line($line, sub { scalar <$fh> });
+            }
+        } else {
+            while (my $line = <$fh>) {
+                chomp $line;
+                push @all_rows, [split /\Q$opt_delim\E/, $line, -1];
+            }
         }
         close $fh;
     } else {
@@ -712,7 +802,7 @@ sub _main {
         die "t2v: empty input\n";
     }
 
-    # ------ Separate header + data ------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Separate header + data ------------------------------
     my $header = $all_rows[0];
     my @data   = @all_rows[1 .. $#all_rows];
     my $n_rows = scalar @data;
@@ -724,14 +814,14 @@ sub _main {
     }
     push @$header, '' while @$header < $n_cols;  # pad header
 
-    # ------ Column analysis ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Column analysis ------------------------------
     my $col_widths_ref = compute_col_widths(\@data, $header, $n_cols, MAX_ANALYSIS_ROWS);
     my $is_numeric_ref = detect_numeric(\@data, $n_cols, MAX_ANALYSIS_ROWS);
 
-    # ------ Terminal size ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Terminal size ------------------------------
     my ($term_rows, $term_cols) = _get_term_size();
 
-    # ------ Terminal setup + cleanup ------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Terminal setup + cleanup ------------------------------
     my $history_file = defined $ENV{HOME} ? "$ENV{HOME}/.t2v_history" : undef;
     my ($search_history_ref, $filter_history_ref) = load_history_file($history_file);
 
@@ -751,7 +841,7 @@ sub _main {
     print "\e[?1049h\e[?25l";  # alt screen, hide cursor
     ReadMode('cbreak');
 
-    # ------ Scroll, Search & Filter state ---------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Scroll, Search & Filter state ------------------------------
     my $v_offset                = 0;
     my $h_offset                = 0;
     my $show_help               = 0;
@@ -880,7 +970,7 @@ sub _main {
         $h_offset     = compute_search_h_offset($col_start, $col_w, $content_w, $max_h->());
     };
 
-    # ------ Inner render helpers ------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Inner render helpers ------------------------------
     my $draw_screen = sub {
         my $vdr       = $visible_data_rows->();
         my $output    = $HOME;
@@ -979,8 +1069,8 @@ sub _main {
             '|  Left / Right Scroll 10ch   |',
             '|  Tab          Scroll 4/5 vp |',
             '|  Shift-Tab    Scroll 4/5 vp |',
-            '|  PgUp/b/C-b   Scroll page   |',
-            '|  PgDn/f/C-f   Scroll page   |',
+            '|  b/C-b/<bksp> Scroll page   |',
+            '|  f/C-f/<sp>   Scroll page   |',
             '|  g / Home     First row     |',
             '|  G / End      Last row      |',
             '|  /            Search regex  |',
@@ -1008,7 +1098,7 @@ sub _main {
         print $RESET;
     };
 
-    # ------ Key reader ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Key reader ------------------------------
     my $read_key = sub {
         my $ch = ReadKey(0);
         return $ch unless defined $ch && $ch eq "\e";
@@ -1022,7 +1112,7 @@ sub _main {
         return "\e$seq";
     };
 
-    # ------ Main loop ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ------ Main loop ------------------------------
     $draw_screen->();
 
     while (1) {
