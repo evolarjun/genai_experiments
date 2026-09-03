@@ -225,15 +225,18 @@ sub format_option_prompt {
 # $rows_ref : arrayref of data row arrayrefs
 # $n_cols   : number of columns
 # $regex    : compiled regex object (qr//)
-# $opt_delim: field delimiter string (default: "\t")
+# $opt_delim           : field delimiter string (default: "\t")
+# $visible_indices_ref : optional arrayref of visible row indices into $rows_ref
 # Returns arrayref of [row_idx, col_idx] tuples (deduplicated per row).
 sub find_matches {
-    my ($rows_ref, $n_cols, $regex, $opt_delim) = @_;
+    my ($rows_ref, $n_cols, $regex, $opt_delim, $visible_indices_ref) = @_;
     $opt_delim //= "\t";
     my @matches;
     return \@matches unless defined $regex && @$rows_ref;
 
-    for my $ri (0 .. $#$rows_ref) {
+    my @row_indices = defined $visible_indices_ref ? @$visible_indices_ref : (0 .. $#$rows_ref);
+
+    for my $ri (@row_indices) {
         my $row  = $rows_ref->[$ri];
         my $line = join($opt_delim, @$row);
 
@@ -1054,7 +1057,7 @@ sub _main {
         }
 
         $search_regex   = $compiled;
-        @search_matches = @{ find_matches(\@data, $n_cols, $search_regex, $opt_delim) };
+        @search_matches = @{ find_matches(\@data, $n_cols, $search_regex, $opt_delim, $visible_indices_ref) };
 
         if (!@search_matches) {
             $status_msg       = "Pattern not found: $pattern";
@@ -1062,7 +1065,8 @@ sub _main {
             return;
         }
 
-        my ($idx, $wrapped) = find_next_match_index(\@search_matches, $v_offset - 1, 999999, 1);
+        my $top_r = @$visible_indices_ref ? $visible_indices_ref->[$v_offset] : 0;
+        my ($idx, $wrapped) = find_next_match_index(\@search_matches, $top_r - 1, 999999, 1);
         $search_match_idx = $idx // 0;
         my ($r, $c)       = @{ $search_matches[$search_match_idx] };
 
@@ -1072,9 +1076,10 @@ sub _main {
 
         my $vdr = $visible_data_rows->();
         my ($target_vis_idx) = grep { $visible_indices_ref->[$_] == $r } (0 .. $#$visible_indices_ref);
-        $target_vis_idx //= $r;
-        if ($target_vis_idx < $v_offset || $target_vis_idx >= $v_offset + $vdr) {
-            $v_offset = clamp($target_vis_idx, 0, $max_v->());
+        if (defined $target_vis_idx) {
+            if ($target_vis_idx < $v_offset || $target_vis_idx >= $v_offset + $vdr) {
+                $v_offset = clamp($target_vis_idx, 0, $max_v->());
+            }
         }
 
         my $col_start = 0;
@@ -1095,9 +1100,13 @@ sub _main {
         return unless defined $search_regex && @search_matches;
         $status_msg = undef;
 
-        my ($curr_r, $curr_c) = (defined $search_match_idx && $search_match_idx < @search_matches)
-            ? @{ $search_matches[$search_match_idx] }
-            : ($v_offset, -1);
+        my ($curr_r, $curr_c);
+        if (defined $search_match_idx && $search_match_idx < @search_matches) {
+            ($curr_r, $curr_c) = @{ $search_matches[$search_match_idx] };
+        } else {
+            my $top_r = @$visible_indices_ref ? $visible_indices_ref->[$v_offset] : 0;
+            ($curr_r, $curr_c) = ($dir > 0) ? ($top_r - 1, 999999) : ($top_r, 0);
+        }
 
         my ($idx, $wrapped) = find_next_match_index(\@search_matches, $curr_r, $curr_c, $dir);
         return unless defined $idx;
@@ -1111,9 +1120,10 @@ sub _main {
 
         my $vdr = $visible_data_rows->();
         my ($target_vis_idx_nav) = grep { $visible_indices_ref->[$_] == $r } (0 .. $#$visible_indices_ref);
-        $target_vis_idx_nav //= $r;
-        if ($target_vis_idx_nav < $v_offset || $target_vis_idx_nav >= $v_offset + $vdr) {
-            $v_offset = clamp($target_vis_idx_nav, 0, $max_v->());
+        if (defined $target_vis_idx_nav) {
+            if ($target_vis_idx_nav < $v_offset || $target_vis_idx_nav >= $v_offset + $vdr) {
+                $v_offset = clamp($target_vis_idx_nav, 0, $max_v->());
+            }
         }
 
         my $col_start = 0;
@@ -1128,6 +1138,7 @@ sub _main {
         my $content_w = max(1, $term_cols - $ln_len);
         $h_offset     = compute_search_h_offset($col_start, $col_w, $content_w, $max_h->());
     };
+
 
     # ------ Inner render helpers ------------------------------
     my $draw_screen = sub {
@@ -1333,6 +1344,29 @@ sub _main {
                     }
                     $v_offset = 0;
                     $h_offset = clamp($h_offset, 0, $max_h->());
+
+                    # Recompute search matches against newly filtered rows if search is active
+                    if (defined $search_regex) {
+                        my ($prev_r, $prev_c);
+                        if (defined $search_match_idx && $search_match_idx < @search_matches) {
+                            ($prev_r, $prev_c) = @{ $search_matches[$search_match_idx] };
+                        }
+                        @search_matches = @{ find_matches(\@data, $n_cols, $search_regex, $opt_delim, $visible_indices_ref) };
+                        if (@search_matches) {
+                            my $new_idx = undef;
+                            if (defined $prev_r) {
+                                for my $mi (0 .. $#search_matches) {
+                                    if ($search_matches[$mi]->[0] == $prev_r && $search_matches[$mi]->[1] == $prev_c) {
+                                        $new_idx = $mi;
+                                        last;
+                                    }
+                                }
+                            }
+                            $search_match_idx = $new_idx // 0;
+                        } else {
+                            $search_match_idx = undef;
+                        }
+                    }
                 } elsif ($mode eq 'w' || $mode eq 'w ') {
                     $show_col_nums = $saved_show_col_nums;
                     $col_base_idx  = $saved_col_base_idx;
@@ -1430,7 +1464,7 @@ sub _main {
             }
             $v_offset = clamp($v_offset, 0, $max_v->());
             $draw_screen->();
-        } elsif ($key eq 'N' || $key eq 'n' || $key eq '-N' || $key eq '-n') {  # Toggle line numbers prompt
+        } elsif ($key eq 'N' || $key eq '-N') {  # Toggle line numbers prompt
             $pending_line_num_toggle = 1;
             $draw_screen->();
         } elsif ($key eq '-') {

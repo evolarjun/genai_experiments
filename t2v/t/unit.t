@@ -335,6 +335,28 @@ subtest 'find_matches' => sub {
     is_deeply($dup_same_col, [ [0, 0] ], 'deduplicates multiple matches in the same cell');
 };
 
+subtest 'find_matches with visible_indices_ref' => sub {
+    my @rows = (
+        ['Alice', '30', '98.5'],
+        ['Bob',   '250', '7'],
+        ['Carol', '42', '88.3333'],
+    );
+    my $regex = qr/a/i;
+    # Rows 0 and 2 match qr/a/i ('Alice', 'Carol').
+    # If only row 2 is visible:
+    my $matches_only_carol = find_matches(\@rows, 3, $regex, "\t", [2]);
+    is_deeply($matches_only_carol, [ [2, 0] ], 'only returns matches for visible row 2');
+
+    # If only row 1 is visible (which does not match):
+    my $matches_none = find_matches(\@rows, 3, $regex, "\t", [1]);
+    is_deeply($matches_none, [], 'returns empty array when visible row has no match');
+
+    # If visible_indices_ref is undef, searches all rows:
+    my $matches_all = find_matches(\@rows, 3, $regex, "\t", undef);
+    is_deeply($matches_all, [ [0, 0], [2, 0] ], 'undef visible_indices_ref searches all rows');
+};
+
+
 subtest 'filter_rows' => sub {
     my @rows = (
         ['Alice', '30', 'New York'],
