@@ -1,0 +1,4 @@
+# Optional convenience dependencies for PubMed PDF Downloader
+# The core library and script run with standard library Python 3.8+
+tqdm>=4.66.0
+pytest>=7.0.0

@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+downloaded_pdfs/
+test_output/
+*.pdf
+*.log
+anti_bot_samples/
