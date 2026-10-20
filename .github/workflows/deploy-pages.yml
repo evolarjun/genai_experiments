@@ -1,0 +1,60 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main # Change to your default branch name if different (e.g., master)
+  workflow_dispatch:
+
+# Set permissions for GITHUB_TOKEN to deploy to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assemble Pages site
+        run: |
+          # 1. Create a staging directory
+          mkdir -p _site
+
+          # 2. Copy your main landing page (root index.html)
+          # Example: using meeting_time/index.html as the home page
+          cp meeting_time/index.html _site/meeting_time.html
+
+          # 3. Copy other HTML files or subdirectories
+          # Example: putting another file into _site/about.html
+          # cp path/to/another/index.html _site/about.html
+
+          # Example: keeping directory structure (accessible at yoursite/tools/index.html)
+          # mkdir -p _site/tools
+          # cp path/to/tools/file.html _site/tools/index.html
+
+          # Optional: Prevent Jekyll processing so raw files aren't altered
+          touch _site/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
