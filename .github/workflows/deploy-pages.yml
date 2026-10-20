@@ -34,11 +34,11 @@ jobs:
 
           # 2. Copy your main landing page (root index.html)
           # Example: using meeting_time/index.html as the home page
-          cp meeting_time/index.html _site/meeting_time.html
+          cp index.html _site/meeting_time.html
 
           # 3. Copy other HTML files or subdirectories
           # Example: putting another file into _site/about.html
-          # cp path/to/another/index.html _site/about.html
+          cp meeting_time/index.html _site/meeting_time.html
 
           # Example: keeping directory structure (accessible at yoursite/tools/index.html)
           # mkdir -p _site/tools
