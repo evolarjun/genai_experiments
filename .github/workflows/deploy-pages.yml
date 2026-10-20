@@ -34,7 +34,7 @@ jobs:
 
           # 2. Copy your main landing page (root index.html)
           # Example: using meeting_time/index.html as the home page
-          cp index.html _site/meeting_time.html
+          cp index.html _site/index.html
 
           # 3. Copy other HTML files or subdirectories
           # Example: putting another file into _site/about.html
