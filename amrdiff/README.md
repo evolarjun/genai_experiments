@@ -30,3 +30,14 @@ row differences so they are easier to understand.
 # Export HTML diff
 ./amrdiff.pl --html test_data/GCA_006131345.1.amrfinder_old test_data/GCA_006131345.1.amrfinder_new > diff.html
 ```
+
+## Running Tests
+
+Run the regression test suite using `prove` or directly with `perl`:
+
+```bash
+prove
+# or verbose:
+prove -v t/amrdiff.t
+```
+
