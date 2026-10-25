@@ -256,7 +256,7 @@ sub cell_tokens {
     }
     if (!defined $val1 || !defined $val2 || $val1 eq $val2) {
         if (defined $val1 && defined $val2 && $val1 eq $val2) {
-            return [ [ $val . $pad, 'dim' ] ];
+            return [ [ $val . $pad, 'plain' ] ];
         }
         return [ [ $val . $pad, $side ] ];
     }
@@ -294,9 +294,9 @@ sub row_cells_tokens {
             } else {
                 my $next_v1 = $fields1 ? $fields1->[$c + 1] : undef;
                 my $next_v2 = $fields2 ? $fields2->[$c + 1] : undef;
-                my $this_dim = (defined $v1 && defined $v2 && $v1 eq $v2);
-                my $next_dim = (defined $next_v1 && defined $next_v2 && $next_v1 eq $next_v2);
-                $sep_style = ($this_dim && $next_dim) ? 'dim' : $side;
+                my $this_same = (defined $v1 && defined $v2 && $v1 eq $v2);
+                my $next_same = (defined $next_v1 && defined $next_v2 && $next_v1 eq $next_v2);
+                $sep_style = ($this_same && $next_same) ? 'plain' : $side;
             }
             push @row_tokens, [ '  ', $sep_style ];
         }
@@ -419,9 +419,10 @@ while ($idx < $total) {
 
     if ($side_by_side) {
         my sub gut_tok {
-            my ($num) = @_;
+            my ($num, $style) = @_;
+            $style //= 'gut';
             my $s = defined $num ? sprintf("%4d ", $num) : "     ";
-            return [ $s, 'gut' ];
+            return [ $s, $style ];
         }
 
         if ($op eq 'u') {
@@ -442,10 +443,10 @@ while ($idx < $total) {
             my @left_cells  = row_cells_tokens(\@f1, \@f2, 'del', 0);
             my @right_cells = row_cells_tokens(\@f1, \@f2, 'add', 0);
             my @line = (
-                gut_tok($line_num1++),
+                gut_tok($line_num1++, 'del'),
                 @left_cells,
                 [ ' | ', 'gut' ],
-                gut_tok($line_num2++),
+                gut_tok($line_num2++, 'add'),
                 @right_cells,
             );
             print_line(\@line);
@@ -453,7 +454,7 @@ while ($idx < $total) {
             my @f1 = split /\t/, $l1, -1;
             my @left_cells = row_cells_tokens(\@f1, undef, 'del', 0);
             my @line = (
-                gut_tok($line_num1++),
+                gut_tok($line_num1++, 'del'),
                 @left_cells,
                 [ ' | ', 'gut' ],
                 gut_tok(undef),
@@ -467,7 +468,7 @@ while ($idx < $total) {
                 gut_tok(undef),
                 [ $blank_pane, 'dim' ],
                 [ ' | ', 'gut' ],
-                gut_tok($line_num2++),
+                gut_tok($line_num2++, 'add'),
                 @right_cells,
             );
             print_line(\@line);
@@ -489,8 +490,8 @@ while ($idx < $total) {
             my @f2 = split /\t/, $l2, -1;
             my @cells1 = row_cells_tokens(\@f1, \@f2, 'del', 0);
             my @cells2 = row_cells_tokens(\@f1, \@f2, 'add', 0);
-            my @line1 = ( [ '< ', 'gut' ], @cells1 );
-            my @line2 = ( [ '> ', 'gut' ], @cells2 );
+            my @line1 = ( [ '< ', 'del' ], @cells1 );
+            my @line2 = ( [ '> ', 'add' ], @cells2 );
             print_line(\@line1);
             print_line(\@line2);
             $line_num1++;
@@ -498,13 +499,13 @@ while ($idx < $total) {
         } elsif ($op eq '-') {
             my @f1 = split /\t/, $l1, -1;
             my @cells1 = row_cells_tokens(\@f1, undef, 'del', 0);
-            my @line = ( [ '< ', 'gut' ], @cells1 );
+            my @line = ( [ '< ', 'del' ], @cells1 );
             print_line(\@line);
             $line_num1++;
         } elsif ($op eq '+') {
             my @f2 = split /\t/, $l2, -1;
             my @cells2 = row_cells_tokens(undef, \@f2, 'add', 0);
-            my @line = ( [ '> ', 'gut' ], @cells2 );
+            my @line = ( [ '> ', 'add' ], @cells2 );
             print_line(\@line);
             $line_num2++;
         }
