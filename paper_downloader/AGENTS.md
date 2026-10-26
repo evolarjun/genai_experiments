@@ -125,6 +125,12 @@ python3 download_pubmed_pdfs.py --file pmids.txt --proxy "http://proxy.univ.edu:
 | `--ncbi-api-key` | | String | `None` (or `$NCBI_API_KEY`) | NCBI API key raising E-Utilities rate limits to 10 req/s. |
 | `--ncbi-email` | | String | `None` (or `$NCBI_EMAIL`) | Contact email for NCBI E-Utilities requests. |
 | `--save-html-samples` | | String (optional path) | `None` | Output directory to save HTML challenge or paywall bodies for debugging. Defaults to `anti_bot_samples` in output dir if passed without value. |
+| `--include-supplements` | | Boolean flag | `False` | Discover and download supplementary material files (spreadsheets, datasets, appendices). |
+| `--supplements-dir` | | String (path) | `{output_dir}/supplements` | Directory to save supplementary files. |
+| `--extract-tables` | | Boolean flag | `False` | Extract embedded main-text tables from PMC JATS XML into formatted TSV files. |
+| `--tables-dir` | | String (path) | `{output_dir}/tables` | Directory to save extracted TSV tables. |
+| `--use-browser` | | Boolean flag | `False` | Enable Playwright headless Chromium fallback for anti-bot or JS interstitial challenges. |
+| `--bvbrc` | | Boolean flag | `False` | Query BV-BRC Data API for bacterial genomes and accessions linked to PMID. |
 
 ---
 
@@ -228,14 +234,22 @@ flowchart TD
 
 - [download_pubmed_pdfs.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/download_pubmed_pdfs.py): Main CLI orchestrator with argument parsing, parallel execution, resume/skip logic, and summary generation.
 - [http_client.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/http_client.py): HTTP session manager, connection pooling, rate limiter, cURL parser, and PDF validator.
-- [metadata.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/metadata.py): Metadata resolver for PMIDs and DOIs (Europe PMC, NCBI ID Converter, CrossRef).
+- [metadata.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/metadata.py): Metadata resolver for PMIDs and DOIs (Europe PMC, NCBI ID Converter, CrossRef, BV-BRC Data API).
 - [tiers.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tiers.py): Implementation of Tiers 1 through 5, CrossRef link resolution, and PMC Proof-of-Work solver.
+- [xml_extractor.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/xml_extractor.py): PMC JATS XML parser for table extraction, supplement discovery, Data Availability mining, and publisher XML restriction detection.
+- [supplements.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/supplements.py): Supplementary file downloader with PMC binary endpoint construction and PoW solver integration.
+- [browser_downloader.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/browser_downloader.py): Optional headless Chromium browser fallback (Playwright) for JS proof-of-work and dynamic challenges.
 - [blaEC_point_mut.pmid](file:///Users/aprasad/dev/genai_experiments/paper_downloader/blaEC_point_mut.pmid): Sample list of test PMIDs.
 - `tests/`: Automated unit test suite.
   - [test_http_client.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_http_client.py)
   - [test_metadata.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_metadata.py)
   - [test_tiers.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_tiers.py)
   - [test_cli.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_cli.py)
+  - [test_xml_extractor.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_xml_extractor.py)
+  - [test_supplements.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_supplements.py)
+  - [test_browser_downloader.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_browser_downloader.py)
+  - [test_bvbrc.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_bvbrc.py)
+  - [test_cli_enhanced.py](file:///Users/aprasad/dev/genai_experiments/paper_downloader/tests/test_cli_enhanced.py)
 - `downloaded_pdfs/`: Default output directory for downloaded `.pdf` files.
 - `downloaded_pdfs/download_summary.json`: JSON summary report detailing status (`success` | `failed`), metadata, resolution source, file size, and landing URLs for paywalled articles.
 - `downloaded_pdfs/download_attempts.log`: Default attempts log file generated when `--log-file` option is used.

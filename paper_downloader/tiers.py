@@ -89,7 +89,8 @@ def try_pmc_download(
     session: Session,
     logger: Optional[Any] = None,
     pmid: Optional[str] = None,
-    save_html_dir: Optional[str] = None
+    save_html_dir: Optional[str] = None,
+    browser_downloader: Optional[Any] = None
 ) -> Optional[Tuple[bytes, str]]:
     """Tier 1: Query PubMed Central (PMC) directly using PMCID, resolving PoW challenges."""
     if not pmcid:
@@ -178,6 +179,13 @@ def try_pmc_download(
 
                     # Re-fetch PDF with PoW cookie now set
                     pdf_bytes, _, code, _ = session.request(p_url, use_cookies=True, headers=pmc_headers)
+
+            if not is_valid_pdf(pdf_bytes) and browser_downloader:
+                if logger:
+                    logger.log(f"  Attempting browser fallback for PMC PDF URL: {p_url}", to_console=False, pmid=pmid)
+                b_pdf, b_err = browser_downloader.fetch(p_url, referer=pmc_landing_url)
+                if is_valid_pdf(b_pdf):
+                    pdf_bytes = b_pdf
 
             if _check_and_log_payload(pdf_bytes, p_url, logger=logger, pmid=pmid, save_html_dir=save_html_dir, tier_name="pmc"):
                 if logger:
@@ -391,7 +399,8 @@ def try_publisher_scrape(
     cookie_str: Optional[str] = None,
     logger: Optional[Any] = None,
     pmid: Optional[str] = None,
-    save_html_dir: Optional[str] = None
+    save_html_dir: Optional[str] = None,
+    browser_downloader: Optional[Any] = None
 ) -> Optional[Tuple[bytes, str]]:
     """
     Tier 5: Follow DOI landing page (with optional EZproxy prefix) and scrape publisher
@@ -495,6 +504,14 @@ def try_publisher_scrape(
             if logger:
                 logger.log(f"  Trying scraped publisher PDF URL: {req_pdf_url}", to_console=False, pmid=pmid)
             pdf_bytes, _, code, _ = session.request(req_pdf_url, use_cookies=True, cookie_str=cookie_str, headers=pub_headers)
+
+            if not is_valid_pdf(pdf_bytes) and browser_downloader:
+                if logger:
+                    logger.log(f"  Attempting browser fallback for publisher PDF URL: {req_pdf_url}", to_console=False, pmid=pmid)
+                b_pdf, b_err = browser_downloader.fetch(req_pdf_url, referer=final_url)
+                if is_valid_pdf(b_pdf):
+                    pdf_bytes = b_pdf
+
             if _check_and_log_payload(pdf_bytes, req_pdf_url, logger=logger, pmid=pmid, save_html_dir=save_html_dir, tier_name="publisher"):
                 if logger:
                     logger.log(f"Attempt Outcome: Tier 5 SUCCESS - Downloaded valid PDF ({len(pdf_bytes)} bytes) from {req_pdf_url}", to_console=False, pmid=pmid)

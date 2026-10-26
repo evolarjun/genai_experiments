@@ -289,3 +289,76 @@ def resolve_doi_metadata(
                 meta[k] = pmid_meta[k]
 
     return meta
+
+
+def fetch_bvbrc_genomes(
+    pmid: str,
+    session: Session,
+    logger: Optional[Any] = None
+) -> Dict[str, List[str]]:
+    """
+    Query the BV-BRC Data API for bacterial genomes and accessions linked to a PMID.
+    Returns dictionary with lists of unique genome_ids, bioproject_accessions,
+    biosample_accessions, assembly_accessions, genbank_accessions, and refseq_accessions.
+    """
+    clean_pmid = pmid.strip()
+    results: Dict[str, List[str]] = {
+        "genome_ids": [],
+        "bioproject_accessions": [],
+        "biosample_accessions": [],
+        "assembly_accessions": [],
+        "genbank_accessions": [],
+        "refseq_accessions": [],
+    }
+    if not clean_pmid.isdigit():
+        return results
+
+    bvbrc_url = (
+        f"https://www.bv-brc.org/api/genome/"
+        f"?eq(publication,{clean_pmid})&select(genome_id,bioproject_accession,biosample_accession,assembly_accession,genbank_accessions,refseq_accessions)"
+    )
+    headers = {"Accept": "application/json"}
+    content, _, status, _ = session.request(bvbrc_url, headers=headers, use_cookies=False)
+    if not content or status != 200:
+        if logger:
+            logger.log(f"  BV-BRC lookup for PMID {clean_pmid} returned HTTP {status}", to_console=False, pmid=clean_pmid)
+        return results
+
+    try:
+        data = json.loads(content.decode("utf-8", errors="replace"))
+        if not isinstance(data, list):
+            return results
+
+        for doc in data:
+            if not isinstance(doc, dict):
+                continue
+            gid = doc.get("genome_id")
+            if gid and str(gid) not in results["genome_ids"]:
+                results["genome_ids"].append(str(gid))
+
+            for key, field_name in (
+                ("bioproject_accessions", "bioproject_accession"),
+                ("biosample_accessions", "biosample_accession"),
+                ("assembly_accessions", "assembly_accession"),
+                ("genbank_accessions", "genbank_accessions"),
+                ("refseq_accessions", "refseq_accessions"),
+            ):
+                val = doc.get(field_name)
+                if val:
+                    for token in re.split(r"[,;]\s*", str(val)):
+                        cleaned = token.strip()
+                        if cleaned and cleaned not in results[key]:
+                            results[key].append(cleaned)
+
+        if logger and results["genome_ids"]:
+            logger.log(
+                f"  BV-BRC found {len(results['genome_ids'])} genome(s) linked to PMID {clean_pmid}",
+                to_console=False,
+                pmid=clean_pmid
+            )
+    except Exception as e:
+        if logger:
+            logger.log(f"  Warning: Failed to parse BV-BRC response for PMID {clean_pmid}: {e}", to_console=False, pmid=clean_pmid)
+
+    return results
+

@@ -32,7 +32,7 @@ from http_client import (
     is_valid_pdf,
     USER_AGENT_DEFAULT,
 )
-from metadata import resolve_pmid_metadata, resolve_doi_metadata, batch_resolve_pmids
+from metadata import resolve_pmid_metadata, resolve_doi_metadata, batch_resolve_pmids, fetch_bvbrc_genomes
 from tiers import (
     try_pmc_download,
     try_openalex,
@@ -40,6 +40,17 @@ from tiers import (
     try_semantic_scholar,
     try_publisher_scrape,
 )
+from xml_extractor import (
+    is_pmc_xml_restricted,
+    extract_tables_from_xml,
+    save_tables_to_tsv,
+    extract_data_availability_accessions,
+)
+from supplements import (
+    fetch_pmc_xml,
+    download_supplements_for_article,
+)
+from browser_downloader import BrowserDownloader
 
 try:
     from tqdm import tqdm
@@ -109,7 +120,16 @@ def download_pubmed_article(
     force: bool = False,
     progress_str: str = "",
     prefetched_meta: Optional[Dict[str, Any]] = None,
-    save_html_dir: Optional[str] = None
+    save_html_dir: Optional[str] = None,
+    include_supplements: bool = False,
+    supplements_dir: Optional[str] = None,
+    extract_tables: bool = False,
+    tables_dir: Optional[str] = None,
+    use_browser: bool = False,
+    browser_downloader: Optional[Any] = None,
+    bvbrc: bool = False,
+    ncbi_api_key: Optional[str] = None,
+    ncbi_email: Optional[str] = None
 ) -> Dict[str, Any]:
     """Execute the retrieval pipeline for a single article (PMID or DOI)."""
     if logger is None:
@@ -142,125 +162,222 @@ def download_pubmed_article(
     )
     logger.log(header_banner, to_console=True, pmid=identifier)
 
+    # Optional BV-BRC genome query
+    bvbrc_data = None
+    if bvbrc and pmid:
+        bvbrc_data = fetch_bvbrc_genomes(pmid=str(pmid), session=session, logger=logger)
+
     # 2. Check if already exists (Resume / Skip functionality)
+    pdf_bytes = None
+    download_url = None
+    source = None
+    skipped_existing = False
+
     if not force and os.path.exists(out_path):
         size_bytes = os.path.getsize(out_path)
         if size_bytes >= 100:
             logger.log(f"  [SKIPPED] Already downloaded ({size_bytes / 1024.0:.1f} KB at {out_name}). Use --force to re-download.", to_console=True, pmid=identifier)
-            return {
-                "identifier": identifier,
-                "pmid": pmid,
-                "status": "success",
-                "skipped_existing": True,
-                "title": title,
-                "journal": meta.get("journal"),
-                "doi": doi,
-                "pmcid": pmcid,
-                "source": "Local Cache (Existing File)",
-                "file_path": abs_path,
-                "size_bytes": size_bytes
+            source = "Local Cache (Existing File)"
+            skipped_existing = True
+            pdf_bytes = b""  # Marker for existing PDF
+
+    if not skipped_existing:
+        # Tier 1: PubMed Central (PMC) Direct
+        if pmcid:
+            logger.log(f"  -> Querying Tier 1: PubMed Central ({pmcid})...", to_console=True, pmid=identifier)
+            res = try_pmc_download(
+                pmcid,
+                session=session,
+                logger=logger,
+                pmid=identifier,
+                save_html_dir=save_html_dir,
+                browser_downloader=browser_downloader
+            )
+            if res:
+                pdf_bytes, download_url = res
+                source = "PubMed Central (PMC)"
+
+        # Tier 2: OpenAlex API
+        if not pdf_bytes:
+            logger.log("  -> Querying Tier 2: OpenAlex API...", to_console=True, pmid=identifier)
+            res = try_openalex(pmid=pmid, doi=doi, session=session, logger=logger)
+            if res:
+                pdf_bytes, download_url = res
+                source = "OpenAlex API"
+
+        # Tier 3: Unpaywall API
+        if not pdf_bytes and doi:
+            logger.log("  -> Querying Tier 3: Unpaywall API...", to_console=True, pmid=identifier)
+            res = try_unpaywall(doi=doi, email=email, session=session, logger=logger, pmid=identifier)
+            if res:
+                pdf_bytes, download_url = res
+                source = "Unpaywall API"
+
+        # Tier 4: Semantic Scholar
+        if not pdf_bytes and (pmid or doi):
+            logger.log("  -> Querying Tier 4: Semantic Scholar API...", to_console=True, pmid=identifier)
+            res = try_semantic_scholar(pmid=pmid, doi=doi, session=session, logger=logger)
+            if res:
+                pdf_bytes, download_url = res
+                source = "Semantic Scholar API"
+
+        # Tier 5: Direct Publisher Scraping (with Institutional VPN / EZproxy / Cookies)
+        if not pdf_bytes and doi:
+            sub_info = "EZproxy" if ezproxy_prefix else ("Cookies/Proxy" if (cookie_str or session.proxy) else "Institutional IP/VPN")
+            logger.log(f"  -> Querying Tier 5: Publisher DOI Landing Scraping ({sub_info})...", to_console=True, pmid=identifier)
+            res = try_publisher_scrape(
+                doi=doi,
+                session=session,
+                ezproxy_prefix=ezproxy_prefix,
+                cookie_str=cookie_str,
+                logger=logger,
+                pmid=identifier,
+                save_html_dir=save_html_dir,
+                browser_downloader=browser_downloader
+            )
+            if res:
+                pdf_bytes, download_url = res
+                source = f"Publisher Scrape ({sub_info})"
+
+        if pdf_bytes:
+            with open(out_path, "wb") as f:
+                f.write(pdf_bytes)
+            size_kb = len(pdf_bytes) / 1024.0
+            logger.log(f"  [SUCCESS] Saved {out_name} ({size_kb:.1f} KB) via {source}", to_console=True, pmid=identifier)
+            logger.log(
+                f"DOWNLOAD STATUS: SUCCESS - Paper successfully downloaded "
+                f"(ID: {identifier}, Source: {source}, Size: {len(pdf_bytes)} bytes, File: {abs_path})",
+                to_console=True,
+                pmid=identifier
+            )
+        else:
+            landing_url = f"https://doi.org/{doi}" if doi else (f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else f"https://doi.org/{identifier}")
+            logger.log(f"  [PAYWALLED / WAF RESTRICTED] Landing Page: {landing_url}", to_console=True, pmid=identifier)
+            logger.log(
+                f"DOWNLOAD STATUS: FAILED - Paper download failed "
+                f"(ID: {identifier}, Landing Page: {landing_url}, Reason: Article is paywalled or required institutional authentication)",
+                to_console=True,
+                pmid=identifier
+            )
+
+    # 3. Handle PMC Full-Text XML capabilities (Supplements, Tables, Data Availability)
+    xml_bytes = None
+    pmc_xml_restricted = False
+    pmc_xml_restricted_reason = None
+    data_availability_info = None
+    extracted_tables_info = None
+    supplements_info = None
+
+    if pmcid and (include_supplements or extract_tables or True):
+        # Fetch PMC XML if needed
+        xml_bytes, xml_err = fetch_pmc_xml(
+            pmcid=pmcid,
+            session=session,
+            ncbi_api_key=ncbi_api_key,
+            ncbi_email=ncbi_email,
+            logger=logger,
+            pmid=identifier
+        )
+        if xml_bytes:
+            is_restr, restr_reason = is_pmc_xml_restricted(xml_bytes)
+            if is_restr:
+                pmc_xml_restricted = True
+                pmc_xml_restricted_reason = restr_reason
+
+            # Data availability mining
+            da_accessions, da_found = extract_data_availability_accessions(xml_bytes)
+            if da_found or da_accessions:
+                data_availability_info = {
+                    "section_found": da_found,
+                    "accessions": da_accessions
+                }
+                if da_accessions and logger:
+                    logger.log(f"  Data Availability accessions found: {', '.join(da_accessions[:6])}{' ...' if len(da_accessions) > 6 else ''}", to_console=True, pmid=identifier)
+
+            # Table extraction
+            if extract_tables:
+                tables = extract_tables_from_xml(xml_bytes)
+                safe_target_dir = sanitize_filename(pmid or identifier)
+                eff_tables_dir = os.path.join(tables_dir or os.path.join(output_dir, "tables"), safe_target_dir)
+                saved_paths = save_tables_to_tsv(tables, eff_tables_dir)
+                extracted_tables_info = {
+                    "count": len(tables),
+                    "files": saved_paths
+                }
+                if logger:
+                    logger.log(f"  Extracted {len(tables)} table(s) to {eff_tables_dir}", to_console=True, pmid=identifier)
+
+            # Supplementary materials download
+            if include_supplements:
+                safe_target_dir = sanitize_filename(pmid or identifier)
+                eff_supp_dir = os.path.join(supplements_dir or os.path.join(output_dir, "supplements"), safe_target_dir)
+                supp_res = download_supplements_for_article(
+                    pmcid=pmcid,
+                    output_dir=eff_supp_dir,
+                    session=session,
+                    xml_bytes=xml_bytes,
+                    browser_downloader=browser_downloader,
+                    force=force,
+                    logger=logger,
+                    pmid=identifier
+                )
+                supplements_info = supp_res
+        elif include_supplements:
+            supplements_info = {
+                "discovered": 0,
+                "downloaded": 0,
+                "failed": 0,
+                "files": [],
+                "error": xml_err or "Failed to fetch PMC XML"
             }
 
-    pdf_bytes = None
-    download_url = None
-    source = None
+    # 4. Compile article result
+    is_success = bool(skipped_existing or pdf_bytes)
+    result_dict: Dict[str, Any] = {
+        "identifier": identifier,
+        "pmid": pmid,
+        "status": "success" if is_success else "failed",
+        "title": meta.get("title"),
+        "journal": meta.get("journal"),
+        "doi": doi,
+        "pmcid": pmcid,
+    }
 
-    # Tier 1: PubMed Central (PMC) Direct
-    if pmcid:
-        logger.log(f"  -> Querying Tier 1: PubMed Central ({pmcid})...", to_console=True, pmid=identifier)
-        res = try_pmc_download(pmcid, session=session, logger=logger, pmid=identifier, save_html_dir=save_html_dir)
-        if res:
-            pdf_bytes, download_url = res
-            source = "PubMed Central (PMC)"
-
-    # Tier 2: OpenAlex API
-    if not pdf_bytes:
-        logger.log("  -> Querying Tier 2: OpenAlex API...", to_console=True, pmid=identifier)
-        res = try_openalex(pmid=pmid, doi=doi, session=session, logger=logger)
-        if res:
-            pdf_bytes, download_url = res
-            source = "OpenAlex API"
-
-    # Tier 3: Unpaywall API
-    if not pdf_bytes and doi:
-        logger.log("  -> Querying Tier 3: Unpaywall API...", to_console=True, pmid=identifier)
-        res = try_unpaywall(doi=doi, email=email, session=session, logger=logger, pmid=identifier)
-        if res:
-            pdf_bytes, download_url = res
-            source = "Unpaywall API"
-
-    # Tier 4: Semantic Scholar
-    if not pdf_bytes and (pmid or doi):
-        logger.log("  -> Querying Tier 4: Semantic Scholar API...", to_console=True, pmid=identifier)
-        res = try_semantic_scholar(pmid=pmid, doi=doi, session=session, logger=logger)
-        if res:
-            pdf_bytes, download_url = res
-            source = "Semantic Scholar API"
-
-    # Tier 5: Direct Publisher Scraping (with Institutional VPN / EZproxy / Cookies)
-    if not pdf_bytes and doi:
-        sub_info = "EZproxy" if ezproxy_prefix else ("Cookies/Proxy" if (cookie_str or session.proxy) else "Institutional IP/VPN")
-        logger.log(f"  -> Querying Tier 5: Publisher DOI Landing Scraping ({sub_info})...", to_console=True, pmid=identifier)
-        res = try_publisher_scrape(
-            doi=doi,
-            session=session,
-            ezproxy_prefix=ezproxy_prefix,
-            cookie_str=cookie_str,
-            logger=logger,
-            pmid=identifier,
-            save_html_dir=save_html_dir
-        )
-        if res:
-            pdf_bytes, download_url = res
-            source = f"Publisher Scrape ({sub_info})"
-
-    if pdf_bytes:
-        with open(out_path, "wb") as f:
-            f.write(pdf_bytes)
-        size_kb = len(pdf_bytes) / 1024.0
-        logger.log(f"  [SUCCESS] Saved {out_name} ({size_kb:.1f} KB) via {source}", to_console=True, pmid=identifier)
-        logger.log(
-            f"DOWNLOAD STATUS: SUCCESS - Paper successfully downloaded "
-            f"(ID: {identifier}, Source: {source}, Size: {len(pdf_bytes)} bytes, File: {abs_path})",
-            to_console=True,
-            pmid=identifier
-        )
-        return {
-            "identifier": identifier,
-            "pmid": pmid,
-            "status": "success",
-            "title": meta.get("title"),
-            "journal": meta.get("journal"),
-            "doi": doi,
-            "pmcid": pmcid,
-            "source": source,
-            "download_url": download_url,
-            "file_path": abs_path,
-            "size_bytes": len(pdf_bytes)
-        }
+    if is_success:
+        result_dict["source"] = source
+        if skipped_existing:
+            result_dict["skipped_existing"] = True
+            result_dict["file_path"] = abs_path
+            result_dict["size_bytes"] = os.path.getsize(out_path)
+        else:
+            result_dict["download_url"] = download_url
+            result_dict["file_path"] = abs_path
+            result_dict["size_bytes"] = len(pdf_bytes) if pdf_bytes else 0
     else:
         landing_url = f"https://doi.org/{doi}" if doi else (f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else f"https://doi.org/{identifier}")
-        logger.log(f"  [PAYWALLED / WAF RESTRICTED] Landing Page: {landing_url}", to_console=True, pmid=identifier)
-        logger.log(
-            f"DOWNLOAD STATUS: FAILED - Paper download failed "
-            f"(ID: {identifier}, Landing Page: {landing_url}, Reason: Article is paywalled or required institutional authentication)",
-            to_console=True,
-            pmid=identifier
+        result_dict["landing_url"] = landing_url
+        result_dict["reason"] = (
+            "Article is paywalled, requires subscription authentication, or blocked by bot protection. "
+            "Pass --cookie-file, --cookie-header, or institutional VPN/EZproxy to access."
         )
-        return {
-            "identifier": identifier,
-            "pmid": pmid,
-            "status": "failed",
-            "title": meta.get("title"),
-            "journal": meta.get("journal"),
-            "doi": doi,
-            "pmcid": pmcid,
-            "landing_url": landing_url,
-            "reason": (
-                "Article is paywalled, requires subscription authentication, or blocked by bot protection. "
-                "Pass --cookie-file, --cookie-header, or institutional VPN/EZproxy to access."
-            )
-        }
+
+    if pmc_xml_restricted:
+        result_dict["pmc_xml_restricted"] = True
+        result_dict["pmc_xml_restricted_reason"] = pmc_xml_restricted_reason
+
+    if data_availability_info:
+        result_dict["data_availability"] = data_availability_info
+
+    if extracted_tables_info is not None:
+        result_dict["tables"] = extracted_tables_info
+
+    if supplements_info is not None:
+        result_dict["supplements"] = supplements_info
+
+    if bvbrc_data is not None:
+        result_dict["bvbrc"] = bvbrc_data
+
+    return result_dict
 
 
 def main():
@@ -294,6 +411,14 @@ def main():
     parser.add_argument("--ncbi-api-key", default=os.environ.get("NCBI_API_KEY"), help="NCBI API key to raise E-Utilities rate limit to 10 req/s.")
     parser.add_argument("--ncbi-email", default=os.environ.get("NCBI_EMAIL"), help="Contact email for NCBI E-Utilities queries.")
     parser.add_argument("--save-html-samples", nargs="?", const="anti_bot_samples", default=None, help="Directory to save raw HTML bodies when anti-bot or paywalls block a PDF.")
+
+    # Enhanced capabilities: Supplements, XML Tables, Headless Browser, and BV-BRC
+    parser.add_argument("--include-supplements", action="store_true", help="Discover and download supplementary materials (spreadsheets, datasets, PDFs).")
+    parser.add_argument("--supplements-dir", help="Custom directory to store supplementary files (default: {output_dir}/supplements).")
+    parser.add_argument("--extract-tables", action="store_true", help="Extract embedded main-text tables from PMC XML into TSV files.")
+    parser.add_argument("--tables-dir", help="Custom directory to store extracted tables (default: {output_dir}/tables).")
+    parser.add_argument("--use-browser", action="store_true", help="Enable Playwright headless Chromium fallback for anti-bot or JS interstitial challenges.")
+    parser.add_argument("--bvbrc", action="store_true", help="Query BV-BRC Data API for bacterial genomes and accessions linked to PMID.")
 
     args = parser.parse_args()
 
@@ -392,6 +517,14 @@ def main():
             logger.log(f"Cookie Auth:      Enabled")
         if args.proxy:
             logger.log(f"Network Proxy:    {args.proxy}")
+        if args.include_supplements:
+            logger.log(f"Supplements:      Enabled ({os.path.abspath(args.supplements_dir or os.path.join(args.output_dir, 'supplements'))})")
+        if args.extract_tables:
+            logger.log(f"Table Extraction: Enabled ({os.path.abspath(args.tables_dir or os.path.join(args.output_dir, 'tables'))})")
+        if args.use_browser:
+            logger.log("Headless Browser: Enabled (Playwright Chromium)")
+        if args.bvbrc:
+            logger.log("BV-BRC Lookup:    Enabled")
         logger.log(f"Concurrency:      {args.parallel} thread(s)")
         logger.log(f"SSL Verification: {'Enabled' if verify_ssl else 'Disabled'}")
 
@@ -407,6 +540,22 @@ def main():
             if args.cookie_file:
                 load_cookie_file(args.cookie_file, sess.cookie_jar)
             return sess
+
+        # Thread-local browser downloader management
+        thread_local = threading.local()
+
+        def get_worker_browser() -> Optional[BrowserDownloader]:
+            if not args.use_browser:
+                return None
+            if not hasattr(thread_local, "browser"):
+                b = BrowserDownloader(user_agent=user_agent)
+                ready, reason = b.is_available()
+                if ready:
+                    thread_local.browser = b
+                else:
+                    logger.log(f"[Warning] Playwright browser fallback unavailable: {reason}", to_console=True)
+                    thread_local.browser = None
+            return thread_local.browser
 
         # Batch resolve metadata for all PMIDs via NCBI ESummary
         pmid_targets = [ident for ident in targets if not is_doi_identifier(ident)]
@@ -430,6 +579,7 @@ def main():
             idx, identifier = item_info
             progress_str = f"{idx}/{total_count}"
             sess = create_worker_session()
+            browser_downloader = get_worker_browser()
             return download_pubmed_article(
                 identifier=identifier,
                 output_dir=args.output_dir,
@@ -441,7 +591,16 @@ def main():
                 force=args.force,
                 progress_str=progress_str,
                 prefetched_meta=prefetched_metadata.get(identifier),
-                save_html_dir=save_html_dir
+                save_html_dir=save_html_dir,
+                include_supplements=args.include_supplements,
+                supplements_dir=args.supplements_dir,
+                extract_tables=args.extract_tables,
+                tables_dir=args.tables_dir,
+                use_browser=args.use_browser,
+                browser_downloader=browser_downloader,
+                bvbrc=args.bvbrc,
+                ncbi_api_key=args.ncbi_api_key,
+                ncbi_email=args.ncbi_email
             )
 
         items = list(enumerate(targets, start=1))
@@ -471,12 +630,19 @@ def main():
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary_data, f, indent=2)
 
+        total_supplements = sum(r.get("supplements", {}).get("downloaded", 0) for r in results)
+        total_tables = sum(r.get("tables", {}).get("count", 0) for r in results)
+
         logger.log("\n==================================================")
         logger.log("                   FINAL SUMMARY                  ")
         logger.log("==================================================")
         logger.log(f"Total Processed:       {len(targets)}")
         logger.log(f"PDFs Downloaded:       {succeeded}")
         logger.log(f"Paywalled / Failed:    {len(targets) - succeeded}")
+        if args.include_supplements:
+            logger.log(f"Supplements Saved:     {total_supplements}")
+        if args.extract_tables:
+            logger.log(f"Tables Extracted:      {total_tables}")
         logger.log(f"Summary JSON:          {os.path.abspath(summary_path)}")
         if log_path:
             logger.log(f"Attempts Log File:     {os.path.abspath(log_path)}")
