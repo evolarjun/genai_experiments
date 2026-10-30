@@ -8,6 +8,7 @@
 # Options:
 #   -C, --context <N>     Number of context lines around differences (default: 2)
 #   -y, --side-by-side    Display differences side-by-side (like vimdiff)
+#   -t, --tab, --tsv      Output tab-delimited format without column padding
 #       --html            Output standalone HTML instead of terminal ANSI
 #       --no-color        Disable ANSI escape colors (plain text)
 #   -h, --help            Show this help message
@@ -19,6 +20,7 @@ use Algorithm::Diff qw(sdiff);
 
 my $context_lines = 2;
 my $side_by_side  = 0;
+my $tab_output    = 0;
 my $html_output   = 0;
 my $no_color      = 0;
 my $help          = 0;
@@ -26,12 +28,23 @@ my $help          = 0;
 GetOptions(
     'context|C=i'    => \$context_lines,
     'side-by-side|y' => \$side_by_side,
+    'tab|tsv|t'      => \$tab_output,
     'html'           => \$html_output,
     'no-color'       => \$no_color,
     'help|h'         => \$help,
 ) or usage(1);
 
 usage(0) if $help;
+
+if ($tab_output && $side_by_side) {
+    warn "Error: --tab and --side-by-side cannot be used together.\n";
+    usage(1);
+}
+
+if ($tab_output && $html_output) {
+    warn "Error: --tab and --html cannot be used together.\n";
+    usage(1);
+}
 
 if (@ARGV != 2) {
     warn "Error: Exactly two input files required.\n";
@@ -243,10 +256,13 @@ sub cell_tokens {
     my ($col_idx, $val1, $val2, $side, $is_hdr) = @_;
     my $val = ($side eq 'add') ? $val2 : $val1;
     $val = '' unless defined $val;
-    my $width = $col_widths[$col_idx] || length($val);
-    my $pad_len = $width - length($val);
-    $pad_len = 0 if $pad_len < 0;
-    my $pad = ' ' x $pad_len;
+    my $pad = '';
+    unless ($tab_output) {
+        my $width = $col_widths[$col_idx] || length($val);
+        my $pad_len = $width - length($val);
+        $pad_len = 0 if $pad_len < 0;
+        $pad = ' ' x $pad_len;
+    }
 
     if ($is_hdr) {
         return [ [ $val . $pad, 'hdr' ] ];
@@ -284,21 +300,25 @@ sub row_cells_tokens {
         push @row_tokens, @$toks;
 
         if ($c < $num_cols - 1) {
-            my $sep_style;
-            if ($is_hdr) {
-                $sep_style = 'hdr';
-            } elsif ($side eq 'ctx') {
-                $sep_style = 'dim';
-            } elsif (!defined $v1 || !defined $v2) {
-                $sep_style = $side;
+            if ($tab_output) {
+                push @row_tokens, [ "\t", 'plain' ];
             } else {
-                my $next_v1 = $fields1 ? $fields1->[$c + 1] : undef;
-                my $next_v2 = $fields2 ? $fields2->[$c + 1] : undef;
-                my $this_same = (defined $v1 && defined $v2 && $v1 eq $v2);
-                my $next_same = (defined $next_v1 && defined $next_v2 && $next_v1 eq $next_v2);
-                $sep_style = ($this_same && $next_same) ? 'plain' : $side;
+                my $sep_style;
+                if ($is_hdr) {
+                    $sep_style = 'hdr';
+                } elsif ($side eq 'ctx') {
+                    $sep_style = 'dim';
+                } elsif (!defined $v1 || !defined $v2) {
+                    $sep_style = $side;
+                } else {
+                    my $next_v1 = $fields1 ? $fields1->[$c + 1] : undef;
+                    my $next_v2 = $fields2 ? $fields2->[$c + 1] : undef;
+                    my $this_same = (defined $v1 && defined $v2 && $v1 eq $v2);
+                    my $next_same = (defined $next_v1 && defined $next_v2 && $next_v1 eq $next_v2);
+                    $sep_style = ($this_same && $next_same) ? 'plain' : $side;
+                }
+                push @row_tokens, [ '  ', $sep_style ];
             }
-            push @row_tokens, [ '  ', $sep_style ];
         }
     }
     return @row_tokens;
@@ -369,6 +389,13 @@ if ($side_by_side) {
         @toks2,
     );
     print_line(\@hdr_line);
+} elsif ($tab_output) {
+    my @toks = row_cells_tokens(\@hdr_fields1, \@hdr_fields1, 'ctx', 1);
+    my @hdr_line = (
+        [ "\t", 'plain' ],
+        @toks,
+    );
+    print_line(\@hdr_line);
 } else {
     my @toks = row_cells_tokens(\@hdr_fields1, \@hdr_fields1, 'ctx', 1);
     my @hdr_line = (
@@ -404,6 +431,11 @@ while ($idx < $total) {
                 [ $left_pad,  'fold' ],
                 [ ' | ',      'gut' ],
                 [ $right_pad, 'fold' ],
+            );
+            print_line(\@line);
+        } elsif ($tab_output) {
+            my @line = (
+                [ "# $fold_msg", 'fold' ],
             );
             print_line(\@line);
         } else {
@@ -475,11 +507,15 @@ while ($idx < $total) {
         }
     } else {
         # Stacked view
+        my @del_pfx = $tab_output ? ( [ '<', 'del' ], [ "\t", 'plain' ] ) : ( [ '< ', 'del' ] );
+        my @add_pfx = $tab_output ? ( [ '>', 'add' ], [ "\t", 'plain' ] ) : ( [ '> ', 'add' ] );
+        my @ctx_pfx = $tab_output ? ( [ "\t", 'plain' ] )                  : ( [ '  ', 'dim' ] );
+
         if ($op eq 'u') {
             my @f = split /\t/, $l1, -1;
             my @cells = row_cells_tokens(\@f, \@f, 'ctx', 0);
             my @line = (
-                [ '  ', 'dim' ],
+                @ctx_pfx,
                 @cells,
             );
             print_line(\@line);
@@ -490,8 +526,8 @@ while ($idx < $total) {
             my @f2 = split /\t/, $l2, -1;
             my @cells1 = row_cells_tokens(\@f1, \@f2, 'del', 0);
             my @cells2 = row_cells_tokens(\@f1, \@f2, 'add', 0);
-            my @line1 = ( [ '< ', 'del' ], @cells1 );
-            my @line2 = ( [ '> ', 'add' ], @cells2 );
+            my @line1 = ( @del_pfx, @cells1 );
+            my @line2 = ( @add_pfx, @cells2 );
             print_line(\@line1);
             print_line(\@line2);
             $line_num1++;
@@ -499,13 +535,13 @@ while ($idx < $total) {
         } elsif ($op eq '-') {
             my @f1 = split /\t/, $l1, -1;
             my @cells1 = row_cells_tokens(\@f1, undef, 'del', 0);
-            my @line = ( [ '< ', 'del' ], @cells1 );
+            my @line = ( @del_pfx, @cells1 );
             print_line(\@line);
             $line_num1++;
         } elsif ($op eq '+') {
             my @f2 = split /\t/, $l2, -1;
             my @cells2 = row_cells_tokens(undef, \@f2, 'add', 0);
-            my @line = ( [ '> ', 'add' ], @cells2 );
+            my @line = ( @add_pfx, @cells2 );
             print_line(\@line);
             $line_num2++;
         }
@@ -533,6 +569,7 @@ Highlight column differences and row differences in tab-delimited files.
 Options:
   -C, --context <N>     Number of context lines around differences (default: 2)
   -y, --side-by-side    Display differences side-by-side (like vimdiff)
+  -t, --tab, --tsv      Output tab-delimited format without column padding
       --html            Output standalone HTML instead of terminal ANSI
       --no-color        Disable ANSI escape colors (plain text)
   -h, --help            Show this help message

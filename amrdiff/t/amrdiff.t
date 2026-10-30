@@ -220,6 +220,69 @@ subtest "HTML output (--html)" => sub {
     like($out, qr/<\/pre><\/div>\s*<\/body>\s*<\/html>/, "HTML footer present");
 };
 
+subtest "Tab-delimited output (-t, --tab, --tsv)" => sub {
+    my $tsv1 = "id\tgene\tcount\n"
+             . "1\tblaTEM-1\t10\n"
+             . "2\ttetA\t20\n"
+             . "3\tsul1\t30\n";
+    my $tsv2 = "id\tgene\tcount\n"
+             . "1\tblaTEM-1\t10\n"
+             . "2\ttetA\t25\n"
+             . "4\tqnrS\t40\n";
+    my $f1 = write_temp_tsv($tsv1);
+    my $f2 = write_temp_tsv($tsv2);
+
+    # Mutual exclusivity checks
+    my ($rc_ty, $out_ty, $err_ty) = run_cmd("-t", "-y", $f1, $f2);
+    isnt($rc_ty, 0, "-t and -y exits with error");
+    like($err_ty, qr/--tab and --side-by-side cannot be used together/i, "Errors on -t with -y");
+
+    my ($rc_th, $out_th, $err_th) = run_cmd("--tab", "--html", $f1, $f2);
+    isnt($rc_th, 0, "--tab and --html exits with error");
+    like($err_th, qr/--tab and --html cannot be used together/i, "Errors on --tab with --html");
+
+    # Test pure text TSV with --no-color
+    my ($rc_t, $out_t, $err_t) = run_cmd("-t", "--no-color", "-C", "-1", $f1, $f2);
+    is($rc_t, 0, "-t with --no-color exits 0");
+    my @lines = split /\r?\n/, $out_t;
+    # Check header
+    is($lines[0], "\tid\tgene\tcount", "Header starts with tab (empty indicator)");
+    # Check unchanged context
+    is($lines[1], "\t1\tblaTEM-1\t10", "Unchanged row starts with tab (empty indicator)");
+    # Check modified row (< and >)
+    is($lines[2], "<\t2\ttetA\t20", "Deleted row starts with < followed by tab");
+    is($lines[3], ">\t2\ttetA\t25", "Added row starts with > followed by tab");
+    # Check row 3 deleted, row 4 added
+    is($lines[4], "<\t3\tsul1\t30", "Removed row 3 starts with < followed by tab");
+    is($lines[5], ">\t4\tqnrS\t40", "Added row 4 starts with > followed by tab");
+
+    # Verify every line has exactly 4 tab-delimited columns (indicator + 3 data columns)
+    for my $idx (0 .. $#lines) {
+        my @cols = split /\t/, $lines[$idx], -1;
+        is(scalar(@cols), 4, "Line $idx has exactly 4 tab-delimited columns");
+    }
+
+    # Verify --tab and --tsv produce identical output
+    my ($rc_tab, $out_tab) = run_cmd("--tab", "--no-color", "-C", "-1", $f1, $f2);
+    is($out_tab, $out_t, "--tab produces same output as -t");
+
+    my ($rc_tsv, $out_tsv) = run_cmd("--tsv", "--no-color", "-C", "-1", $f1, $f2);
+    is($out_tsv, $out_t, "--tsv produces same output as -t");
+
+    # Test fold formatting with context folding
+    my ($rc_fold, $out_fold) = run_cmd("-t", "--no-color", "-C", "0", $f1, $f2);
+    is($rc_fold, 0, "-t with folds exits 0");
+    like($out_fold, qr/^# \.\.\. 1 identical line \.\.\.$/m, "Folds start with '# ' in tab mode");
+
+    # Test ANSI colors in tab mode (by default)
+    my ($rc_col, $out_col) = run_cmd("-t", $f1, $f2);
+    is($rc_col, 0, "-t with default colors exits 0");
+    like($out_col, qr/\e\[38;5;203m</, "< marker is colored red");
+    like($out_col, qr/\e\[38;5;77m>/, "> marker is colored green");
+    like($out_col, qr/\e\[38;5;203;1;4m0/, "Char diff 0 has bold/underlined red");
+    like($out_col, qr/\e\[38;5;77;1;4m5/, "Char diff 5 has bold/underlined green");
+};
+
 subtest "Smoke tests on real test_data files" => sub {
     my $data_dir = File::Spec->catdir($Bin, '..', 'test_data');
     plan skip_all => "test_data directory not found" unless -d $data_dir;
