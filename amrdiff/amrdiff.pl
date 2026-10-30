@@ -6,16 +6,17 @@
 #   amrdiff.pl [options] <file1> <file2>
 #
 # Options:
-#   -C, --context <N>     Number of context lines around differences (default: 2)
-#   -y, --side-by-side    Display differences side-by-side (like vimdiff)
-#   -t, --tab, --tsv      Output tab-delimited format without column padding
-#       --html            Output standalone HTML instead of terminal ANSI
-#       --no-color        Disable ANSI escape colors (plain text)
-#   -h, --help            Show this help message
+#   -C, --context <N>          Number of context lines around differences (default: 2)
+#   -y, --side-by-side         Display differences side-by-side (like vimdiff)
+#   -t, --tab, --tsv           Output tab-delimited format without column padding
+#   -I, --ignore-column <COLS> Comma-delimited list of column names or 1-based indices to ignore
+#       --html                 Output standalone HTML instead of terminal ANSI
+#       --no-color             Disable ANSI escape colors (plain text)
+#   -h, --help                 Show this help message
 
 use strict;
 use warnings;
-use Getopt::Long qw(GetOptionsFromArray);
+use Getopt::Long qw(GetOptions);
 use Algorithm::Diff qw(sdiff);
 
 my $context_lines = 2;
@@ -24,14 +25,16 @@ my $tab_output    = 0;
 my $html_output   = 0;
 my $no_color      = 0;
 my $help          = 0;
+my @ignore_col_opts;
 
 GetOptions(
-    'context|C=i'    => \$context_lines,
-    'side-by-side|y' => \$side_by_side,
-    'tab|tsv|t'      => \$tab_output,
-    'html'           => \$html_output,
-    'no-color'       => \$no_color,
-    'help|h'         => \$help,
+    'context|C=i'         => \$context_lines,
+    'side-by-side|y'      => \$side_by_side,
+    'tab|tsv|t'           => \$tab_output,
+    'html'                => \$html_output,
+    'no-color'            => \$no_color,
+    'ignore-column|I=s@'  => \@ignore_col_opts,
+    'help|h'              => \$help,
 ) or usage(1);
 
 usage(0) if $help;
@@ -44,6 +47,24 @@ if ($tab_output && $side_by_side) {
 if ($tab_output && $html_output) {
     warn "Error: --tab and --html cannot be used together.\n";
     usage(1);
+}
+
+my @ignore_col_specs;
+for my $opt (@ignore_col_opts) {
+    if ($opt =~ /^\s*$/) {
+        warn "Error: Empty column name or index in --ignore-column.\n";
+        usage(1);
+    }
+    my @parts = split /,/, $opt, -1;
+    for my $item (@parts) {
+        $item =~ s/^\s+//;
+        $item =~ s/\s+$//;
+        if (!length $item) {
+            warn "Error: Empty column name or index in --ignore-column.\n";
+            usage(1);
+        }
+        push @ignore_col_specs, $item;
+    }
 }
 
 if (@ARGV != 2) {
@@ -67,6 +88,45 @@ $header2 =~ s/\r?\n$//;
 my @hdr_fields1 = split /\t/, $header1, -1;
 my @hdr_fields2 = split /\t/, $header2, -1;
 
+my %ignore_col_idx;
+for my $spec (@ignore_col_specs) {
+    if ($spec =~ /^-?\d+$/) {
+        if ($spec <= 0) {
+            warn "Error: Column index '$spec' must be >= 1 in --ignore-column.\n";
+            usage(1);
+        }
+        my $idx = $spec - 1;
+        if ($idx > $#hdr_fields1) {
+            warn "Error: Column index '$spec' out of range in '$file1' (file has " . scalar(@hdr_fields1) . " columns).\n";
+            usage(1);
+        }
+        if ($idx > $#hdr_fields2) {
+            warn "Error: Column index '$spec' out of range in '$file2' (file has " . scalar(@hdr_fields2) . " columns).\n";
+            usage(1);
+        }
+        $ignore_col_idx{$idx} = 1;
+    } else {
+        my @found_indices;
+        for my $i (0 .. $#hdr_fields1) {
+            if ($hdr_fields1[$i] eq $spec) {
+                push @found_indices, $i;
+            }
+        }
+        if (!@found_indices) {
+            warn "Error: Column '$spec' not found in header of '$file1'.\n";
+            usage(1);
+        }
+        for my $idx (@found_indices) {
+            if ($idx > $#hdr_fields2 || $hdr_fields2[$idx] ne $spec) {
+                my $f2_col = ($idx <= $#hdr_fields2) ? "'$hdr_fields2[$idx]'" : "out of range";
+                warn "Error: Column '$spec' at position " . ($idx + 1) . " in '$file1' does not match '$file2' header ($f2_col).\n";
+                usage(1);
+            }
+            $ignore_col_idx{$idx} = 1;
+        }
+    }
+}
+
 my @lines1;
 while (my $line = <$fh1>) {
     $line =~ s/\r?\n$//;
@@ -84,7 +144,21 @@ close $fh2;
 # Diff lines using sdiff (LCS based alignment)
 # Each item: [ $op, $line1, $line2 ]
 # $op is 'u' (unchanged), 'c' (changed), '-' (deleted from file1), '+' (added to file2)
-my @diff_items = sdiff(\@lines1, \@lines2);
+my @diff_items;
+if (%ignore_col_idx) {
+    my $key_gen = sub {
+        my ($line) = @_;
+        my @fields = split /\t/, $line, -1;
+        my @projected;
+        for my $i (0 .. $#fields) {
+            push @projected, $fields[$i] unless $ignore_col_idx{$i};
+        }
+        return join("\t", @projected);
+    };
+    @diff_items = sdiff(\@lines1, \@lines2, $key_gen);
+} else {
+    @diff_items = sdiff(\@lines1, \@lines2);
+}
 
 # Determine which items are within context range of differences
 my $total = scalar @diff_items;
@@ -142,17 +216,19 @@ for my $i (0 .. $total - 1) {
 
 # Color definitions
 my %ANSI = (
-    del    => "\e[38;5;203m",       # light red
-    del_ch => "\e[38;5;203;1;4m",   # bold underlined red
-    add    => "\e[38;5;77m",        # light green
-    add_ch => "\e[38;5;77;1;4m",    # bold underlined green
-    dim    => "\e[38;5;244m",       # dimmed gray
-    hdr    => "\e[1;37m",           # bold white
-    gut    => "\e[38;5;240m",       # darker gray for gutters
-    fold   => "\e[38;5;244m",       # gray for folds
-    reset  => "\e[0m",
+    del      => "\e[38;5;203m",       # light red
+    del_ch   => "\e[38;5;203;1;4m",   # bold underlined red
+    add      => "\e[38;5;77m",        # light green
+    add_ch   => "\e[38;5;77;1;4m",    # bold underlined green
+    dim      => "\e[38;5;244m",       # dimmed gray
+    dim_u    => "\e[38;5;244;4m",     # dimmed gray underlined (ignored diff on context row)
+    plain_u  => "\e[4m",              # plain text underlined (ignored diff on changed row)
+    hdr      => "\e[1;37m",           # bold white
+    gut      => "\e[38;5;240m",       # darker gray for gutters
+    fold     => "\e[38;5;244m",       # gray for folds
+    reset    => "\e[0m",
 );
-my %HAS_ATTR = ( del_ch => 1, add_ch => 1, hdr => 1 );
+my %HAS_ATTR = ( del_ch => 1, add_ch => 1, hdr => 1, dim_u => 1, plain_u => 1 );
 
 sub esc_html {
     my ($str) = @_;
@@ -254,7 +330,7 @@ sub diff_cell_chars {
 # Returns list of [ $text, $style ] tokens for a cell
 sub cell_tokens {
     my ($col_idx, $val1, $val2, $side, $is_hdr) = @_;
-    my $val = ($side eq 'add') ? $val2 : $val1;
+    my $val = ($side eq 'add' || $side eq 'ctx_right') ? $val2 : $val1;
     $val = '' unless defined $val;
     my $pad = '';
     unless ($tab_output) {
@@ -267,8 +343,34 @@ sub cell_tokens {
     if ($is_hdr) {
         return [ [ $val . $pad, 'hdr' ] ];
     }
-    if ($side eq 'ctx') {
+    if ($side =~ /^ctx/) {
+        if ($ignore_col_idx{$col_idx} && defined $val1 && defined $val2 && $val1 ne $val2) {
+            my ($pre, $mid1, $mid2, $suf) = diff_cell_chars($val1, $val2);
+            my $mid = ($side eq 'ctx_right') ? $mid2 : $mid1;
+            my @toks;
+            push @toks, [ $pre, 'dim' ] if length $pre;
+            push @toks, [ $mid, 'dim_u' ] if length $mid;
+            push @toks, [ $suf . $pad, 'dim' ] if length($suf . $pad);
+            push @toks, [ $val . $pad, 'dim' ] unless @toks;
+            return \@toks;
+        }
         return [ [ $val . $pad, 'dim' ] ];
+    }
+    if ($ignore_col_idx{$col_idx}) {
+        if (defined $val1 && defined $val2 && $val1 eq $val2) {
+            return [ [ $val . $pad, 'plain' ] ];
+        }
+        if (defined $val1 && defined $val2) {
+            my ($pre, $mid1, $mid2, $suf) = diff_cell_chars($val1, $val2);
+            my $mid = ($side eq 'add') ? $mid2 : $mid1;
+            my @toks;
+            push @toks, [ $pre, 'plain' ] if length $pre;
+            push @toks, [ $mid, 'plain_u' ] if length $mid;
+            push @toks, [ $suf . $pad, 'plain' ] if length($suf . $pad);
+            push @toks, [ $val . $pad, 'plain' ] unless @toks;
+            return \@toks;
+        }
+        return [ [ $val . $pad, 'plain' ] ];
     }
     if (!defined $val1 || !defined $val2 || $val1 eq $val2) {
         if (defined $val1 && defined $val2 && $val1 eq $val2) {
@@ -306,16 +408,16 @@ sub row_cells_tokens {
                 my $sep_style;
                 if ($is_hdr) {
                     $sep_style = 'hdr';
-                } elsif ($side eq 'ctx') {
+                } elsif ($side =~ /^ctx/) {
                     $sep_style = 'dim';
                 } elsif (!defined $v1 || !defined $v2) {
                     $sep_style = $side;
                 } else {
                     my $next_v1 = $fields1 ? $fields1->[$c + 1] : undef;
                     my $next_v2 = $fields2 ? $fields2->[$c + 1] : undef;
-                    my $this_same = (defined $v1 && defined $v2 && $v1 eq $v2);
-                    my $next_same = (defined $next_v1 && defined $next_v2 && $next_v1 eq $next_v2);
-                    $sep_style = ($this_same && $next_same) ? 'plain' : $side;
+                    my $this_ok = (defined $v1 && defined $v2 && ($v1 eq $v2 || $ignore_col_idx{$c}));
+                    my $next_ok = (defined $next_v1 && defined $next_v2 && ($next_v1 eq $next_v2 || $ignore_col_idx{$c + 1}));
+                    $sep_style = ($this_ok && $next_ok) ? 'plain' : $side;
                 }
                 push @row_tokens, [ '  ', $sep_style ];
             }
@@ -365,6 +467,8 @@ pre { margin: 0; white-space: pre; font-family: inherit; }
 .add { color: #5fd75f; }
 .add_ch { color: #5fd75f; font-weight: bold; text-decoration: underline; }
 .dim { color: #7d8590; }
+.dim_u { color: #7d8590; text-decoration: underline; }
+.plain_u { text-decoration: underline; }
 .hdr { color: #f0f6fc; font-weight: bold; }
 .gut { color: #59606b; }
 .fold { color: #7d8590; font-style: italic; }
@@ -373,7 +477,11 @@ pre { margin: 0; white-space: pre; font-family: inherit; }
 <body>
 HTML_HEAD
     print "<h1>amrdiff: " . esc_html($file1) . " vs " . esc_html($file2) . "</h1>\n";
-    print "<div class=\"meta\">Options: context=$context_lines, view=" . ($side_by_side ? "side-by-side" : "stacked") . "</div>\n";
+    my $meta_opts = "context=$context_lines, view=" . ($side_by_side ? "side-by-side" : "stacked");
+    if (@ignore_col_specs) {
+        $meta_opts .= ", ignore-column=" . esc_html(join(",", @ignore_col_specs));
+    }
+    print "<div class=\"meta\">Options: $meta_opts</div>\n";
     print "<div class=\"diff-container\"><pre>\n";
 }
 
@@ -458,9 +566,10 @@ while ($idx < $total) {
         }
 
         if ($op eq 'u') {
-            my @f = split /\t/, $l1, -1;
-            my @left_cells  = row_cells_tokens(\@f, \@f, 'ctx', 0);
-            my @right_cells = row_cells_tokens(\@f, \@f, 'ctx', 0);
+            my @f1 = split /\t/, $l1, -1;
+            my @f2 = split /\t/, $l2, -1;
+            my @left_cells  = row_cells_tokens(\@f1, \@f2, 'ctx', 0);
+            my @right_cells = row_cells_tokens(\@f1, \@f2, 'ctx_right', 0);
             my @line = (
                 gut_tok($line_num1++),
                 @left_cells,
@@ -512,8 +621,9 @@ while ($idx < $total) {
         my @ctx_pfx = $tab_output ? ( [ "\t", 'plain' ] )                  : ( [ '  ', 'dim' ] );
 
         if ($op eq 'u') {
-            my @f = split /\t/, $l1, -1;
-            my @cells = row_cells_tokens(\@f, \@f, 'ctx', 0);
+            my @f1 = split /\t/, $l1, -1;
+            my @f2 = split /\t/, $l2, -1;
+            my @cells = row_cells_tokens(\@f1, \@f2, 'ctx', 0);
             my @line = (
                 @ctx_pfx,
                 @cells,
@@ -567,12 +677,13 @@ Usage: amrdiff.pl [options] <file1> <file2>
 Highlight column differences and row differences in tab-delimited files.
 
 Options:
-  -C, --context <N>     Number of context lines around differences (default: 2)
-  -y, --side-by-side    Display differences side-by-side (like vimdiff)
-  -t, --tab, --tsv      Output tab-delimited format without column padding
-      --html            Output standalone HTML instead of terminal ANSI
-      --no-color        Disable ANSI escape colors (plain text)
-  -h, --help            Show this help message
+  -C, --context <N>          Number of context lines around differences (default: 2)
+  -y, --side-by-side         Display differences side-by-side (like vimdiff)
+  -t, --tab, --tsv           Output tab-delimited format without column padding
+  -I, --ignore-column <COLS> Comma-delimited list of column names or 1-based indices to ignore
+      --html                 Output standalone HTML instead of terminal ANSI
+      --no-color             Disable ANSI escape colors (plain text)
+  -h, --help                 Show this help message
 
 USAGE
     exit $exit_code;

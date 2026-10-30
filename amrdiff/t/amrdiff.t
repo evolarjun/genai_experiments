@@ -19,7 +19,7 @@ sub run_cmd {
     close $out_fh;
     close $err_fh;
 
-    my $cmd = join(' ', map { /\s/ ? qq("$_") : $_ } ($^X, $SCRIPT, @args));
+    my $cmd = join(' ', map { (/\s/ || $_ eq '') ? qq("$_") : $_ } ($^X, $SCRIPT, @args));
     my $rc = system("$cmd > $out_fn 2> $err_fn");
     my $exit_code = $rc >> 8;
 
@@ -303,6 +303,13 @@ subtest "Smoke tests on real test_data files" => sub {
         my ($rc_h, $out_h) = run_cmd("--html", $g1_old, $g1_new);
         is($rc_h, 0, "GCA_006131345.1 HTML exits 0");
         like($out_h, qr/<!doctype html>/, "GCA_006131345.1 HTML generated");
+
+        # Ignore columns where qacE differs: Start, Target length, % Coverage of reference, % Identity to reference, Alignment length
+        my ($rc_ig, $out_ig) = run_cmd("-I", "Start,Target length,% Coverage of reference,% Identity to reference,Alignment length", $g1_old, $g1_new);
+        is($rc_ig, 0, "GCA_006131345.1 with -I exits 0");
+        like($out_ig, qr/oqxA/, "Still detects oqxA difference");
+        unlike($out_ig, qr/<.*qacE/, "qacE difference is suppressed with -I");
+        unlike($out_ig, qr/>.*qacE/, "qacE difference is suppressed with -I");
     }
 
     # Test set 2: GCA_029070155.1 (deleted row)
@@ -322,6 +329,135 @@ subtest "Smoke tests on real test_data files" => sub {
         is($rc, 0, "GCA_043566345.1 diff exits 0");
         like($out, qr/mexR/, "Detects mexR difference in GCA_043566345.1");
     }
+};
+
+subtest "Ignore column option (-I, --ignore-column)" => sub {
+    # 1. Validation tests
+    my $tsv_base = "id\tgene\tcount\n1\tA\t10\n2\tB\t20\n";
+    my $tsv_diff = "id\tgene\tcount\n1\tA\t15\n2\tB\t20\n";
+    my $f1 = write_temp_tsv($tsv_base);
+    my $f2 = write_temp_tsv($tsv_diff);
+
+    my ($rc, $out, $err) = run_cmd("-I", "nonexistent", $f1, $f2);
+    isnt($rc, 0, "Non-existent column name exits with error");
+    like($err, qr/Column 'nonexistent' not found in header/, "Error message names missing column");
+
+    ($rc, $out, $err) = run_cmd("-I", "0", $f1, $f2);
+    isnt($rc, 0, "0 index exits with error");
+    like($err, qr/Column index '0' must be >= 1/, "Error message mentions >= 1");
+
+    ($rc, $out, $err) = run_cmd("-I", "-1", $f1, $f2);
+    isnt($rc, 0, "Negative index exits with error");
+    like($err, qr/Column index '-1' must be >= 1/, "Error message mentions >= 1");
+
+    ($rc, $out, $err) = run_cmd("-I", "99", $f1, $f2);
+    isnt($rc, 0, "Out-of-range index exits with error");
+    like($err, qr/Column index '99' out of range/, "Error message mentions out of range");
+
+    ($rc, $out, $err) = run_cmd("-I", "", $f1, $f2);
+    isnt($rc, 0, "Empty column spec exits with error");
+    like($err, qr/Empty column name or index/, "Error message mentions empty column name");
+
+    # Mismatched header between files
+    my $tsv_mismatch = "id\tdifferent\tcount\n1\tA\t10\n";
+    my $f_mis = write_temp_tsv($tsv_mismatch);
+    ($rc, $out, $err) = run_cmd("-I", "gene", $f1, $f_mis);
+    isnt($rc, 0, "Mismatched header between files exits with error");
+    like($err, qr/does not match/, "Error message mentions header mismatch");
+
+    # 2. Diff suppression and folding when only ignored column differs
+    ($rc, $out, $err) = run_cmd("-I", "count", $f1, $f2);
+    is($rc, 0, "Exits 0 when ignoring count column");
+    unlike($out, qr/<|>/, "No diff markers < or > when ignoring the only differing column");
+    like($out, qr/\.\.\. 2 identical lines \.\.\./, "Folds identical rows when differences are ignored");
+
+    # 3. Numeric 1-based index support
+    ($rc, $out, $err) = run_cmd("-I", "3", $f1, $f2);
+    is($rc, 0, "Exits 0 when ignoring column by index 3");
+    unlike($out, qr/<|>/, "No diff markers when using 1-based index");
+    like($out, qr/\.\.\. 2 identical lines \.\.\./, "Folds rows when using 1-based index");
+
+    # 4. Comma-separated list and whitespace tolerance
+    my $tsv_multi1 = "id\tgene\tcount\tcomment\n1\tA\t10\tfoo\n";
+    my $tsv_multi2 = "id\tgene\tcount\tcomment\n1\tA\t15\tbar\n";
+    my $fm1 = write_temp_tsv($tsv_multi1);
+    my $fm2 = write_temp_tsv($tsv_multi2);
+
+    ($rc, $out, $err) = run_cmd("-I", "count, comment", $fm1, $fm2);
+    is($rc, 0, "Exits 0 with comma-separated list and spaces");
+    unlike($out, qr/<|>/, "Suppresses differences in both comma-separated columns");
+
+    # Repeatable -I flag
+    ($rc, $out, $err) = run_cmd("-I", "count", "-I", "comment", $fm1, $fm2);
+    is($rc, 0, "Exits 0 with multiple -I flags");
+    unlike($out, qr/<|>/, "Suppresses differences across multiple -I flags");
+
+    # 5. Context line (-C -1) styling for ignored differences on unchanged rows:
+    # Character-level diff within field is underlined with dimmed underline (\e[38;5;244;4m)
+    my $tsv_ctx1 = "id\tval\n1\tabc10xyz\n";
+    my $tsv_ctx2 = "id\tval\n1\tabc20xyz\n";
+    my $fc1 = write_temp_tsv($tsv_ctx1);
+    my $fc2 = write_temp_tsv($tsv_ctx2);
+
+    ($rc, $out, $err) = run_cmd("-C", "-1", "-I", "val", $fc1, $fc2);
+    is($rc, 0, "Exits 0 with -C -1 and -I");
+    unlike($out, qr/<|>/, "Row is unchanged context row");
+    like($out, qr/\e\[38;5;244;4m1/, "Differing middle character '1' in context row has dimmed underline");
+    like($out, qr/abc/, "Prefix 'abc' is present");
+    like($out, qr/xyz/, "Suffix 'xyz' is present");
+
+    # 6. Changed row styling:
+    # When non-ignored column differs, row is changed (< and >).
+    # Differing non-ignored column has red/green diff.
+    # Differing ignored column has plain text with plain underline (\e[4m), NOT red/green.
+    my $tsv_ch1 = "id\tval\tstatus\n1\tabc10xyz\tFAIL\n";
+    my $tsv_ch2 = "id\tval\tstatus\n1\tabc20xyz\tPASS\n";
+    my $fch1 = write_temp_tsv($tsv_ch1);
+    my $fch2 = write_temp_tsv($tsv_ch2);
+
+    ($rc, $out, $err) = run_cmd("-I", "val", $fch1, $fch2);
+    is($rc, 0, "Exits 0 on changed row with ignored column");
+    like($out, qr/<.*FAIL/, "Found < line with FAIL");
+    like($out, qr/>.*PASS/, "Found > line with PASS");
+    # Check that status has red/green diffs
+    like($out, qr/\e\[38;5;203;1;4mFAIL/, "status FAIL has bold underlined red");
+    like($out, qr/\e\[38;5;77;1;4mPASS/, "status PASS has bold underlined green");
+    # Check that differing char in ignored column has plain underline (\e[4m), NOT red/green
+    like($out, qr/\e\[4m1\e\[0m/, "Ignored char '1' on < line has plain underline");
+    like($out, qr/\e\[4m2\e\[0m/, "Ignored char '2' on > line has plain underline");
+    unlike($out, qr/\e\[38;5;203;1;4m1/, "Ignored char '1' does NOT have red diff attribute");
+    unlike($out, qr/\e\[38;5;77;1;4m2/, "Ignored char '2' does NOT have green diff attribute");
+
+    # 7. Side-by-side mode (-y) with ignored column
+    ($rc, $out, $err) = run_cmd("-y", "-C", "-1", "-I", "val", $fc1, $fc2);
+    is($rc, 0, "-y with -I exits 0");
+    like($out, qr/ \| /, "Side-by-side divider present");
+    like($out, qr/\e\[38;5;244;4m1.*\|.*\e\[38;5;244;4m2/s, "Left pane shows file 1 val with dimmed underline, right pane shows file 2 val with dimmed underline");
+
+    # 8. HTML mode (--html)
+    ($rc, $out, $err) = run_cmd("--html", "-C", "-1", "-I", "val", $fc1, $fc2);
+    is($rc, 0, "--html with -I exits 0");
+    like($out, qr/<span class="dim_u">1<\/span>/, "HTML contains dim_u span for context ignored diff");
+    like($out, qr/ignore-column=val/, "HTML meta includes ignore-column");
+
+    ($rc, $out, $err) = run_cmd("--html", "-I", "val", $fch1, $fch2);
+    is($rc, 0, "--html on changed row with -I exits 0");
+    like($out, qr/<span class="plain_u">1<\/span>/, "HTML contains plain_u span for changed row ignored diff");
+
+    # 9. --no-color mode
+    ($rc, $out, $err) = run_cmd("--no-color", "-I", "val", $fch1, $fch2);
+    is($rc, 0, "--no-color with -I exits 0");
+    unlike($out, qr/\e\[/, "Zero ANSI escapes with --no-color");
+
+    # 10. Duplicate column headers: ignores all columns with matching name
+    my $tsv_dup1 = "id\tscore\tscore\n1\t10\t100\n";
+    my $tsv_dup2 = "id\tscore\tscore\n1\t20\t200\n";
+    my $fdup1 = write_temp_tsv($tsv_dup1);
+    my $fdup2 = write_temp_tsv($tsv_dup2);
+
+    ($rc, $out, $err) = run_cmd("-I", "score", $fdup1, $fdup2);
+    is($rc, 0, "Exits 0 when ignoring duplicate column header name");
+    unlike($out, qr/<|>/, "Both columns named 'score' are ignored");
 };
 
 done_testing();
